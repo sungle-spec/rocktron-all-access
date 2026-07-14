@@ -1,0 +1,2389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rocktron All Access — Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Inter:wght@400;700;900&family=Orbitron:wght@700;900&family=Tourney:wght@800;900&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Navy / blue metallic industrial palette */
+    --bg:        #061029;       /* deep navy background */
+    --bg2:       #0a1a3d;       /* slightly lighter navy */
+    --panel:     #112752;       /* mid navy panel */
+    --panel2:    #1a3268;       /* lighter inset (controls) */
+    --line:      #2a4f8e;       /* steel-blue rule */
+    --fg:        #ffffff;       /* white text everywhere */
+    --mute:      #a0b6da;       /* dimmed labels */
+    --accent:    #ffd040;       /* yellow — labels + buttons */
+    --accent2:   #5ad17f;       /* RX green */
+    --red:       #ff5050;
+    --blue:      #5aa6ff;       /* TX blue */
+    --warn:      #ff8800;
+    --led-on:    #2bd654;       /* connection LED on */
+    --led-off:   #ff3030;       /* connection LED off */
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; color:var(--fg);
+    /* Page-wide brushed metallic sheen — vertical gradient over a
+       subtle horizontal-line texture. */
+    background:
+      linear-gradient(180deg, #0a1a3d 0%, #061029 50%, #050d22 100%) fixed;
+    font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+
+  /* ── Header banner ──────────────────────────────────────────────── */
+  header {
+    background:
+      linear-gradient(180deg, #1a3a78 0%, #0d2557 50%, #061638 100%);
+    border-bottom:1px solid var(--line);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),
+               inset 0 -2px 6px rgba(0,0,0,.4);
+    padding:10px 18px; display:flex; align-items:center; gap:18px;
+    flex-wrap:wrap;
+  }
+  header .brand { display:flex; align-items:baseline; gap:14px; }
+  header .brand .rock {
+    font-family:'Orbitron','Audiowide',sans-serif; font-weight:900;
+    font-size:24px; letter-spacing:5px; color:#ff5a5a;
+    text-shadow:0 0 10px rgba(255,90,90,.6),
+                0 1px 0 rgba(0,0,0,.6);
+  }
+  header .brand .all-access {
+    font-family:'Cormorant Garamond','Times New Roman',serif;
+    font-weight:700; font-style:italic; font-size:34px;
+    letter-spacing:6px; color:#ffd040; text-transform:uppercase;
+    text-shadow:0 0 14px rgba(255,208,64,.45),
+                0 1px 0 rgba(0,0,0,.6);
+  }
+  header .status { color:var(--mute); font-size:11px;
+    display:flex; align-items:center; gap:4px; }
+  header .status b { color:var(--fg); font-weight:600; }
+  header .grow { flex:1; }
+
+  /* MIDI connection LEDs (small dots beside the port labels) */
+  .conn-led {
+    display:inline-block; width:10px; height:10px; border-radius:50%;
+    background:var(--led-off); margin-right:4px; vertical-align:-1px;
+    box-shadow:inset 0 1px 1px rgba(0,0,0,.5),
+               0 0 5px rgba(255,40,40,.55);
+    transition: background .2s, box-shadow .2s;
+  }
+  .conn-led.on {
+    background:var(--led-on);
+    box-shadow:inset 0 1px 1px rgba(0,0,0,.4),
+               0 0 7px rgba(40,220,90,.85);
+  }
+
+  /* ── Tabs (icon buttons) ─────────────────────────────────────── */
+  nav.tabs {
+    background:linear-gradient(180deg, #061638, #03102b);
+    padding:4px 14px; border-bottom:1px solid var(--line); gap:6px;
+    display:flex;
+  }
+  nav.tabs button {
+    background:linear-gradient(180deg, #1a3268 0%, #0d2557 100%);
+    border:1px solid var(--line); border-radius:6px;
+    padding:8px 14px; cursor:pointer; color:var(--mute);
+    display:flex; align-items:center; justify-content:center;
+    min-width:54px; height:44px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+    position:relative;
+    transition: color .15s, border-color .15s,
+                background .15s, box-shadow .15s;
+  }
+  nav.tabs button svg { width:24px; height:24px; display:block; }
+  nav.tabs button:hover:not(.active) {
+    color:#fff; border-color:#5aa6ff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.18),
+               0 0 6px rgba(90,166,255,.3);
+  }
+  nav.tabs button.active {
+    color:var(--accent); border-color:var(--accent);
+    background:linear-gradient(180deg, #2a4f8e 0%, #14305f 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.18),
+               0 0 8px rgba(255,208,64,.45);
+  }
+  /* Custom tooltip — shown on hover via the data-tip attribute. */
+  nav.tabs button[data-tip]:hover::after {
+    content: attr(data-tip);
+    position:absolute; top:calc(100% + 6px); left:50%;
+    transform: translateX(-50%); white-space:nowrap;
+    background:#0a1838; color:var(--accent);
+    border:1px solid var(--line); border-radius:4px;
+    padding:4px 9px; font-size:11px; letter-spacing:.4px;
+    text-transform:none; font-weight:600; pointer-events:none;
+    box-shadow:0 4px 10px rgba(0,0,0,.5);
+    z-index:50;
+  }
+  /* Right-side toolbar pieces inside the same nav.tabs band. */
+  nav.tabs .tools-spacer { flex:1 1 auto; }
+  nav.tabs .tool-divider {
+    width:1px; align-self:stretch; margin:6px 6px;
+    background:linear-gradient(180deg, transparent, var(--line), transparent);
+  }
+  nav.tabs button.tab-tool {
+    /* same chassis as the tab buttons */
+    color:var(--mute);
+  }
+  nav.tabs button.tab-tool.primary {
+    /* yellow-filled action button (Write All) */
+    background:linear-gradient(180deg, #ffe070, var(--accent));
+    color:#1a1a1a; border-color:#a07a18;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+               0 0 6px rgba(255,208,64,.45);
+  }
+  nav.tabs button.tab-tool.primary:hover:not(:disabled) {
+    background:linear-gradient(180deg, #ffec90, #ffd969);
+    color:#000;
+  }
+  nav.tabs button.tab-tool:disabled {
+    opacity:.45; cursor:not-allowed;
+  }
+  main { padding:14px; }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  /* ── Buttons / inputs ─────────────────────────────────────────── */
+  button, select, input[type=text], input[type=number] {
+    background:linear-gradient(180deg, #1a3268 0%, #112752 100%);
+    color:var(--fg); border:1px solid var(--line);
+    padding:6px 12px; border-radius:4px; font:inherit;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+  select { padding-right:24px; }
+  button { cursor:pointer; color:var(--accent); font-weight:600;
+    text-shadow:0 0 4px rgba(255,208,64,.25); }
+  button:hover { border-color:var(--accent); color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.18),
+               0 0 6px rgba(255,208,64,.25); }
+  button.primary {
+    background:linear-gradient(180deg, #ffe070, var(--accent));
+    color:#1a1a1a; border-color:#a07a18; font-weight:700;
+    text-shadow:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.4),
+               0 0 6px rgba(255,208,64,.4);
+  }
+  button.primary:hover { background:linear-gradient(180deg, #ffec90, #ffd969); }
+  button.danger { background:var(--red); color:#0a0a0a; border-color:#a31515; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* ── Panels ───────────────────────────────────────────────────── */
+  .panel {
+    background:linear-gradient(180deg, #0e2049 0%, #0a1838 100%);
+    border:1px solid var(--line); border-radius:6px;
+    padding:12px; margin-bottom:12px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.06),
+               0 2px 6px rgba(0,0,0,.35);
+  }
+  .panel h3 { margin:0 0 8px 0; font-size:12px; color:var(--accent);
+    text-transform:uppercase; letter-spacing:1px;
+    text-shadow:0 0 4px rgba(255,208,64,.3); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .row > label { color:var(--mute); font-size:11px; }
+  label { color:var(--accent); }
+
+  /* Preset list */
+  .layout { display:grid; grid-template-columns:280px 1fr; gap:12px; }
+  .preset-list { max-height:75vh; overflow:auto; border:1px solid var(--line); border-radius:4px; }
+  .preset-row { display:flex; padding:5px 8px; border-bottom:1px solid #161c22; cursor:pointer; gap:6px;}
+  .preset-row:hover { background:#222830; }
+  .preset-row.active { background:#2a3440; color:var(--accent); }
+  .preset-row .n { color:var(--mute); width:30px; text-align:right; }
+  .preset-row .n2 { color:var(--mute); width:42px; font-size:10px; }
+
+  /* ── Per-preset editor blocks ─────────────────────────────────── */
+  .editor-section { border-top:1px solid var(--line); margin-top:10px;
+    padding-top:8px; }
+  .editor-section h4 { margin:0 0 6px 0; font-size:11px; color:var(--accent);
+    text-transform:uppercase; letter-spacing:0.6px; }
+  .editor-section .hint { color:var(--mute); font-size:10px; margin-top:6px; }
+
+  /* PC slots — 16 channels in a 4-column grid */
+  .pc-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr));
+    gap:6px; }
+  .pc-cell { display:flex; flex-direction:column; gap:2px;
+    background:#0c1d40; border:1px solid var(--line); border-radius:4px;
+    padding:5px 6px; }
+  .pc-cell .lbl { font-size:10px; color:var(--mute); display:flex;
+    justify-content:space-between; align-items:center; }
+  .pc-cell .lbl .ch-name { color:var(--accent); font-weight:600; }
+  .pc-cell input[type="number"] { width:100%; padding:2px 4px; font-size:11px;
+    background:#0a1838; color:var(--accent); border:1px solid var(--line);
+    border-radius:3px; }
+  .pc-cell label.act { font-size:10px; color:var(--mute); display:flex;
+    align-items:center; gap:4px; cursor:pointer; }
+  .pc-cell.off { opacity:0.5; }
+
+  /* IA bitmap — 15 toggle pills */
+  .ia-row { display:flex; gap:6px; flex-wrap:wrap; }
+  .ia-pill { background:#0c1d40; border:1px solid var(--line); border-radius:4px;
+    padding:4px 8px; cursor:pointer; font-size:10px; color:var(--mute);
+    user-select:none; min-width:60px; text-align:center; }
+  .ia-pill .num { font-weight:700; }
+  .ia-pill.on { background:#3a5c1a; border-color:#5d8a26; color:#dfffae;
+    box-shadow:inset 0 0 6px rgba(160,255,80,0.3); }
+  .ia-pill.unset { opacity:0.4; cursor:not-allowed; }
+
+  /* Custom MIDI command rows */
+  .cmd-row { display:grid; grid-template-columns:34px 90px 70px 70px 70px 1fr;
+    gap:6px; align-items:center; padding:4px 0;
+    border-bottom:1px dashed #1e3870; }
+  .cmd-row:last-child { border-bottom:none; }
+  .cmd-row .cmd-num { font-size:10px; color:var(--accent); font-weight:600; }
+  .cmd-row select, .cmd-row input { padding:2px 4px; font-size:11px;
+    background:#0a1838; color:var(--accent); border:1px solid var(--line);
+    border-radius:3px; }
+
+  /* SysEx 30-byte grid */
+  .sysex-grid { display:grid; grid-template-columns:repeat(10, minmax(0,1fr));
+    gap:4px; }
+  .sysex-cell { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .sysex-cell .idx { font-size:9px; color:var(--mute); }
+  .sysex-cell input { width:100%; padding:2px 0; text-align:center;
+    font-size:10px; background:#0a1838; color:var(--accent);
+    border:1px solid var(--line); border-radius:3px; }
+
+  .save-btn { padding:3px 10px; font-size:10px; }
+  .editor-actions { display:flex; gap:6px; margin-top:6px; }
+
+  /* All Access SVG — new traced touring-model render. The chassis,
+     drop-shadow, chrome caps, and LCD glow are all in the SVG itself
+     via gradients and filters. We only need a host wrapper. */
+  .aa-shell { max-width:1100px; margin:14px auto; }
+  .aa-shell svg.controller { width:100%; height:auto; display:block; }
+
+  /* MIDI activity log — sits below the controller */
+  .midi-activity { font-family:"SF Mono",Menlo,monospace; }
+  #midi-activity-list { max-height:240px; overflow-y:auto;
+    background:#0a0d10; border:1px solid var(--line); border-radius:4px;
+    padding:6px 10px; font-size:11px; line-height:1.5; }
+  #midi-activity-list .ma-row { display:grid;
+    grid-template-columns: 70px 36px 64px 1fr 80px;
+    gap:8px; padding:1px 0; border-bottom:1px solid #131a20; }
+  #midi-activity-list .ma-empty { color:var(--mute); font-style:italic;
+    padding:8px 0; }
+  #midi-activity-list .ma-tx { color:var(--blue); }
+  #midi-activity-list .ma-rx { color:var(--accent2); }
+  #midi-activity-list .ma-time { color:var(--mute); }
+  #midi-activity-list .ma-evt  { font-weight:600; }
+  #midi-activity-list .ma-dev  { color:var(--fg); }
+  #midi-activity-list .ma-val  { color:var(--accent); text-align:right; }
+
+  .fc-pedal { background:var(--panel2); border:1px solid var(--line); border-radius:6px;
+    padding:10px; display:flex; align-items:center; gap:10px; flex:1;}
+  .fc-pedal input[type=range] { flex:1; }
+  .fc-bank-row { display:flex; gap:10px; margin-bottom:10px; }
+
+  /* Monitor */
+  .monitor { height:60vh; overflow:auto; background:#0a0d10; padding:6px 10px;
+    border:1px solid var(--line); border-radius:4px; font:11px/1.4 "SF Mono",Menlo,monospace; }
+  .monitor .ev { display:grid; grid-template-columns:90px 60px 70px 1fr; gap:8px; padding:2px 0; border-bottom:1px solid #131a20;}
+  .monitor .kind-tx { color:var(--blue); }
+  .monitor .kind-rx { color:var(--accent2); }
+  .monitor .kind-rx-sysex { color:var(--warn); }
+  .monitor .kind-err { color:var(--red); }
+
+  .channel-grid, .switch-grid { display:grid; grid-template-columns:repeat(4, minmax(120px,1fr)); gap:8px;}
+  .chan-card, .sw-card { background:var(--panel2); border:1px solid var(--line); border-radius:4px; padding:8px;}
+  .chan-card .n, .sw-card .n { font-size:10px; color:var(--mute); }
+  .chan-card input, .sw-card input { width:100%; }
+
+  table.kv { border-collapse:collapse; width:100%; }
+  table.kv th, table.kv td { padding:5px 8px; text-align:left; border-bottom:1px solid var(--line); }
+  table.kv th { color:var(--mute); font-weight:400; font-size:11px; text-transform:uppercase; }
+
+  .hex { font-family:"SF Mono",Menlo,monospace; font-size:10px; color:var(--mute); word-break:break-all; }
+  .pill { display:inline-block; padding:1px 6px; border-radius:10px; font-size:10px; background:var(--panel2); color:var(--mute); }
+  .pill.ok { background:#173; color:#cfe; }
+  .pill.err { background:#911; color:#fcc; }
+  .toast { position:fixed; bottom:14px; right:14px; background:#333; color:#fff;
+    padding:8px 14px; border-radius:4px; z-index:99; font-size:12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="rock">ROCKTRON</span>
+    <span class="all-access">All Access</span>
+  </div>
+
+  <span class="status">
+    <span class="conn-led" id="led-in"></span> IN
+    <select id="midi-in-select" title="MIDI input port"
+            onchange="onPortSelectChange()" style="min-width:160px">
+      <option value="">— select —</option>
+    </select>
+    &nbsp;
+    <span class="conn-led" id="led-out"></span> OUT
+    <select id="midi-out-select" title="MIDI output port"
+            onchange="onPortSelectChange()" style="min-width:160px">
+      <option value="">— select —</option>
+    </select>
+    &nbsp;dump: <b id="dump-status">no dump loaded</b>
+  </span>
+
+  <span class="grow"></span>
+  <!-- All sysex buttons (Load / Save / Read All / Write All) live in
+       the tab bar below now. Per-preset Read/Write stay as hidden
+       compat targets so legacy JS references still resolve. -->
+  <button id="btn-read-preset" style="display:none"></button>
+  <button id="btn-write-preset" style="display:none"></button>
+
+  <!-- Hidden compat targets — old code refers to these IDs. -->
+  <span id="midi-in-status" style="display:none"></span>
+  <span id="midi-out-status" style="display:none"></span>
+</header>
+
+<nav class="tabs">
+  <!-- Tab buttons — SVG glyphs only; data-tip drives the hover tooltip. -->
+  <button class="active" data-tab="presets" data-tip="Presets" aria-label="Presets">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4.5" width="16" height="3.2" rx="1" fill="currentColor" stroke="none"/>
+      <rect x="3" y="9.4" width="16" height="3.2" rx="1" fill="currentColor" stroke="none" opacity=".7"/>
+      <rect x="3" y="14.3" width="16" height="3.2" rx="1" fill="currentColor" stroke="none" opacity=".4"/>
+    </svg>
+  </button>
+  <button data-tab="global" data-tip="Global Config" aria-label="Global Config">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round">
+      <circle cx="11" cy="11" r="8"/>
+      <ellipse cx="11" cy="11" rx="3.5" ry="8"/>
+      <line x1="3" y1="11" x2="19" y2="11"/>
+      <line x1="11" y1="3.5" x2="11" y2="18.5"/>
+    </svg>
+  </button>
+  <button data-tab="channels" data-tip="Channels &amp; Switches" aria-label="Channels and Switches">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.4"
+         stroke-linecap="round">
+      <line x1="2.5" y1="6.5" x2="19.5" y2="6.5"/>
+      <line x1="2.5" y1="11"  x2="19.5" y2="11"/>
+      <line x1="2.5" y1="15.5" x2="19.5" y2="15.5"/>
+      <line x1="6.5"  y1="2.5" x2="6.5"  y2="19.5"/>
+      <line x1="11"   y1="2.5" x2="11"   y2="19.5"/>
+      <line x1="15.5" y1="2.5" x2="15.5" y2="19.5"/>
+      <circle cx="6.5"  cy="6.5"  r="1.6" fill="currentColor" stroke="none"/>
+      <circle cx="11"   cy="11"   r="1.6" fill="currentColor" stroke="none"/>
+      <circle cx="15.5" cy="15.5" r="1.6" fill="currentColor" stroke="none"/>
+    </svg>
+  </button>
+  <button data-tab="songs" data-tip="Songs (150 banks of presets)" aria-label="Songs">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 7 16 L 7 5 L 17 4 L 17 14"/>
+      <ellipse cx="5"  cy="16" rx="2.2" ry="1.6" fill="currentColor" stroke="none"/>
+      <ellipse cx="15" cy="14" rx="2.2" ry="1.6" fill="currentColor" stroke="none"/>
+    </svg>
+  </button>
+  <button data-tab="sets" data-tip="Sets (10 sets × 50 banks)" aria-label="Sets">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3.5" width="13" height="13" rx="1.4"/>
+      <rect x="6" y="6.5" width="13" height="13" rx="1.4" fill="#0a1838" stroke="currentColor"/>
+    </svg>
+  </button>
+  <button data-tab="pcmap" data-tip="PC Map (incoming PC → preset)" aria-label="PC Map">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 3 6 L 11 6 M 14 6 L 19 6"/>
+      <path d="M 3 11 L 8 11 M 11 11 L 19 11"/>
+      <path d="M 3 16 L 13 16 M 16 16 L 19 16"/>
+      <path d="M 19 4 L 21 6 L 19 8" />
+      <path d="M 19 9 L 21 11 L 19 13" />
+      <path d="M 19 14 L 21 16 L 19 18" />
+    </svg>
+  </button>
+  <button data-tab="footctrl" data-tip="Virtual Foot Controller" aria-label="Virtual Foot Controller">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2" y="6" width="18" height="11" rx="1.4"/>
+      <circle cx="6"  cy="9.5"  r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="11" cy="9.5"  r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="16" cy="9.5"  r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="6"  cy="13.5" r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="11" cy="13.5" r="1.2" fill="currentColor" stroke="none"/>
+      <circle cx="16" cy="13.5" r="1.2" fill="currentColor" stroke="none"/>
+    </svg>
+  </button>
+  <button data-tab="monitor" data-tip="MIDI Monitor" aria-label="MIDI Monitor">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.4"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2.5" y="3.5" width="17" height="12" rx="1.2"/>
+      <line x1="5"  y1="7.5" x2="14" y2="7.5"/>
+      <line x1="5"  y1="10"  x2="11" y2="10"/>
+      <line x1="5"  y1="12.5" x2="13" y2="12.5"/>
+      <line x1="1.5" y1="18.5" x2="20.5" y2="18.5" stroke-width="2"/>
+    </svg>
+  </button>
+  <button data-tab="about" data-tip="About" aria-label="About">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.4"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 3 4.5 L 10 4.5 Q 11 4.5 11 5.5 L 11 18.5 Q 11 17.5 10 17.5 L 3 17.5 Z"/>
+      <path d="M 19 4.5 L 12 4.5 Q 11 4.5 11 5.5 L 11 18.5 Q 11 17.5 12 17.5 L 19 17.5 Z"/>
+      <line x1="5"  y1="8"  x2="9" y2="8"/>
+      <line x1="5"  y1="11" x2="9" y2="11"/>
+      <line x1="13" y1="8"  x2="17" y2="8"/>
+      <line x1="13" y1="11" x2="17" y2="11"/>
+    </svg>
+  </button>
+
+  <!-- Right-side toolbar: dump load / save / read / write actions.
+       Visually grouped via .tools-spacer + .tool-divider, styled the
+       same as the section tabs so the bar reads as one band. -->
+  <span class="tools-spacer"></span>
+
+  <button class="tab-tool" data-tip="Load .syx file from disk"
+          aria-label="Load .syx" onclick="loadDumpDialog()">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 3 7 L 9 7 L 11 5 L 19 5 L 19 17 L 3 17 Z"/>
+      <path d="M 11 9 L 11 14"/>
+      <path d="M 8.5 11.5 L 11 14 L 13.5 11.5"/>
+    </svg>
+  </button>
+
+  <button id="btn-save-dump" class="tab-tool" data-tip="Save current dump to a .syx file"
+          aria-label="Save .syx" onclick="saveDump()" disabled>
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 4 4 L 16 4 L 18 6 L 18 18 L 4 18 Z"/>
+      <rect x="6" y="13" width="10" height="5"/>
+      <rect x="7" y="4" width="8" height="4" fill="currentColor" stroke="none"/>
+      <rect x="13" y="5" width="2" height="2" fill="#0a1838" stroke="none"/>
+    </svg>
+  </button>
+
+  <span class="tool-divider"></span>
+
+  <button id="btn-read-all" class="tab-tool" data-tip="Read All — capture incoming dump from device"
+          aria-label="Read All" onclick="readAll()">
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="2.5" width="16" height="6.5" rx="1"/>
+      <circle cx="6.5" cy="5.7" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="9.5" cy="5.7" r=".9" fill="currentColor" stroke="none"/>
+      <path d="M 11 11 L 11 17"/>
+      <path d="M 8 14 L 11 17 L 14 14"/>
+      <line x1="3" y1="19.5" x2="19" y2="19.5" stroke-width="2"/>
+    </svg>
+  </button>
+
+  <button id="btn-write-all" class="tab-tool primary"
+          data-tip="Write All — send the full dump to the device"
+          aria-label="Write All" onclick="sendDump()" disabled>
+    <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <line x1="3" y1="2.5" x2="19" y2="2.5" stroke-width="2"/>
+      <path d="M 11 5 L 11 11"/>
+      <path d="M 8 8 L 11 5 L 14 8"/>
+      <rect x="3" y="13" width="16" height="6.5" rx="1"/>
+      <circle cx="6.5" cy="16.3" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="9.5" cy="16.3" r=".9" fill="currentColor" stroke="none"/>
+    </svg>
+  </button>
+</nav>
+
+<main>
+
+<!-- ─────────────────────── Presets ─────────────────────── -->
+<section id="tab-presets" class="tab-content active">
+  <div class="layout">
+    <div class="preset-list panel" style="padding:0" id="preset-list">
+      <div style="padding:10px;color:var(--mute);text-align:center;">
+        Load a .syx bulk dump to populate presets.
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <h3>Preset detail</h3>
+        <div id="preset-detail">
+          <div style="color:var(--mute)">Select a preset to view / edit.</div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Raw frame (309 B)</h3>
+        <div class="hex" id="preset-hex">—</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────── Global Config ─────────────────────── -->
+<section id="tab-global" class="tab-content">
+  <div class="panel" style="max-width:620px">
+    <h3>Setup (SETUP pages)</h3>
+    <table class="kv">
+      <tr><th>Bank Mode (P1)</th><td>
+        <select id="g-bank-mode"><option>BANK</option><option>SONG</option><option>REMOTE</option></select>
+      </td></tr>
+      <tr><th>Bank Size (P2)</th><td>
+        <select id="g-bank-size"><option>1</option><option>5</option><option>10</option><option>15</option></select>
+      </td></tr>
+      <tr><th>Bank Style (P3)</th><td>
+        <select id="g-bank-style"><option>FIRST</option><option>CURNT</option><option>NONE</option></select>
+      </td></tr>
+      <tr><th>MIDI Receive Ch (MIDI P7)</th><td>
+        <input type="number" id="g-rx-ch" min="1" max="16" value="1">
+        <label><input type="checkbox" id="g-rx-omni"> OMNI</label>
+      </td></tr>
+      <tr><th>Starting Preset # (P6)</th><td>
+        <select id="g-preset-start"><option value="0">0</option><option value="1">1</option></select>
+      </td></tr>
+      <tr><th>Remote Title # (SETUP P10)</th><td>
+        <input type="number" id="g-remote-title" min="0" max="255" value="0">
+      </td></tr>
+      <tr><th>Program Change Status (MIDI P5)</th><td>
+        <select id="g-pc-status"><option>OFF</option><option>ON</option><option>MAP</option></select>
+      </td></tr>
+    </table>
+    <div style="margin-top:10px">
+      <button class="primary" onclick="saveGlobalToDump()">Save to dump</button>
+      <button onclick="saveGlobal()">Save (UI only)</button>
+      <span style="color:var(--mute);font-size:11px;margin-left:10px;">
+        "Save to dump" splices into the loaded dump bytes — use Write All to push to the device.
+      </span>
+    </div>
+  </div>
+
+  <div class="panel" style="max-width:620px;margin-top:14px;">
+    <h3>Write All — pacing (locked)</h3>
+    <p style="color:var(--mute);font-size:11px;margin:0 0 8px 0;">
+      Pacing is hard-locked to the All Access manual's literal "1 byte every
+      15 ms" spec, confirmed working on real hardware. Any other values
+      (chunked sends, longer byte delays, or any inter-frame pause) caused
+      the device to commit early during testing and corrupted the rig — so
+      these are read-only.
+    </p>
+    <table class="kv">
+      <tr><th>Chunk size</th><td><b style="color:var(--accent);">1 byte</b>
+        <span style="color:var(--mute);font-size:11px;"> · byte-by-byte</span></td></tr>
+      <tr><th>Byte delay</th><td><b style="color:var(--accent);">15 ms</b>
+        <span style="color:var(--mute);font-size:11px;"> · matches device input rate (~65 Hz)</span></td></tr>
+      <tr><th>Inter-frame pause</th><td><b style="color:var(--accent);">0 ms</b>
+        <span style="color:var(--mute);font-size:11px;"> · continuous stream — never insert silence</span></td></tr>
+    </table>
+    <p style="color:var(--mute);font-size:11px;margin:8px 0 0 0;">
+      <b>Full dump ETA:</b> ~11 minutes (43 647 bytes × 15 ms). Don't switch
+      browser tabs or let the laptop sleep during Write All — keep
+      <code>tail -f /tmp/aa-server.log | grep WRITE_ALL</code> open in a
+      terminal for live progress visible to the user.
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────────────── Songs ─────────────────────── -->
+<section id="tab-songs" class="tab-content">
+  <div class="panel" style="max-width:920px">
+    <h3>Songs — 150 banks of presets (SONG/SET P2)</h3>
+    <div class="row" style="gap:10px">
+      <label>Song
+        <select id="songs-pick" onchange="renderSong()" style="min-width:80px"></select>
+      </label>
+      <span style="color:var(--mute);font-size:11px;">
+        Each song = 1 bank. With Bank Size = 5, only slots 1–5 are active on the device;
+        the editor exposes all 10 slots since they're stored regardless.
+      </span>
+    </div>
+    <table class="kv" id="song-slots" style="margin-top:8px"></table>
+    <div style="margin-top:10px">
+      <button class="primary" onclick="saveSong()">Save song</button>
+      <span style="color:var(--mute);font-size:11px;margin-left:10px;">
+        Splices into the song frame for this song; preserves all other songs in the same frame.
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────── Sets ─────────────────────── -->
+<section id="tab-sets" class="tab-content">
+  <div class="panel" style="max-width:920px">
+    <h3>Sets — 10 sets × 50 banks → song (SONG/SET P3)</h3>
+    <div class="row" style="gap:10px">
+      <label>Set
+        <select id="sets-pick" onchange="renderSet()" style="min-width:80px"></select>
+      </label>
+      <span style="color:var(--mute);font-size:11px;">
+        Each set selects which song plays in each of the 50 banks.
+      </span>
+    </div>
+    <div id="set-banks" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; margin-top:8px;"></div>
+    <div style="margin-top:10px">
+      <button class="primary" onclick="saveSet()">Save set</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────── PC Map ─────────────────────── -->
+<section id="tab-pcmap" class="tab-content">
+  <div class="panel" style="max-width:none;">
+    <h3>PC Map — incoming Program Change → preset (MIDI P6)</h3>
+    <div class="row" style="gap:10px;align-items:flex-start;">
+      <span style="color:var(--mute);font-size:11px;">
+        When the device receives PC<i>n</i> on its MIDI Receive Channel and Program Change Status = MAP,
+        it recalls the mapped preset. Default mapping is identity (PC1→PR1, PC2→PR2, …).
+      </span>
+    </div>
+    <div id="pcmap-grid" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; margin-top:8px;"></div>
+    <div style="margin-top:10px">
+      <button class="primary" onclick="savePCMap()">Save PC map</button>
+      <button onclick="resetPCMapIdentity()">Reset to identity</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────── Channels &amp; Switches ─────────────────────── -->
+<section id="tab-channels" class="tab-content">
+  <div class="panel">
+    <h3>MIDI Channels — custom names (CH1–CH16)</h3>
+    <div class="channel-grid" id="channel-names-grid"></div>
+  </div>
+  <div class="panel">
+    <h3>Foot Switches — custom names (SW1–SW15)</h3>
+    <div class="switch-grid" id="switch-names-grid"></div>
+  </div>
+  <div class="panel">
+    <h3>IA Routing (SW6–SW15) — channel + CC# the virtual switch transmits</h3>
+    <div class="switch-grid" id="ia-routing-grid"></div>
+    <div style="font-size:11px;color:var(--mute);margin-top:6px;">
+      Defaults are the MUSE rig CC mapping. Edits save to your browser
+      and apply immediately. The actual on-device per-switch config is
+      stored inside each preset (SETUP P4 GLOBAL/PER PR) and is not yet
+      reverse-engineered — these settings only drive the virtual
+      foot controller.
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Pedal Inputs</h3>
+    <div class="switch-grid" id="pedal-names-grid"></div>
+  </div>
+  <div class="panel" style="display:flex;align-items:center;gap:10px;">
+    <button class="primary" onclick="saveNamesToDump()">Save names to dump</button>
+    <span style="color:var(--mute);font-size:11px;">
+      Channel + switch + pedal names get spliced back into the 279 B name block (frame 123).
+      Use Write All afterwards to push to the device.
+    </span>
+  </div>
+</section>
+
+<!-- ─────────────────────── Virtual Foot Controller ─────────────────────── -->
+<section id="tab-footctrl" class="tab-content">
+  <!-- Realistic All Access chassis (SVG, drawn from the device photo) -->
+  <div class="aa-shell">
+    <svg id="aa-svg" class="controller" viewBox="0 0 1100 620"
+         preserveAspectRatio="xMidYMid meet" role="img"
+         aria-label="MIDI foot controller">
+      <defs>
+        <linearGradient id="chassis" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0"   stop-color="#009be6"/>
+          <stop offset="0.45" stop-color="#0084cc"/>
+          <stop offset="1"   stop-color="#005e9e"/>
+        </linearGradient>
+        <linearGradient id="chassisBevel" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#33b5fc" stop-opacity="0.9"/>
+          <stop offset="1" stop-color="#33b5fc" stop-opacity="0"/>
+        </linearGradient>
+
+        <pattern id="brush" width="3" height="2" patternUnits="userSpaceOnUse">
+          <rect width="3" height="2" fill="transparent"/>
+          <line x1="0" y1="1" x2="3" y2="1" stroke="#ffffff" stroke-opacity="0.08"/>
+        </pattern>
+
+        <radialGradient id="capTop" cx="0.35" cy="0.3" r="0.85">
+          <stop offset="0"    stop-color="#ffffff"/>
+          <stop offset="0.25" stop-color="#e6ebf2"/>
+          <stop offset="0.55" stop-color="#8993a6"/>
+          <stop offset="0.85" stop-color="#3a4256"/>
+          <stop offset="1"    stop-color="#1a2030"/>
+        </radialGradient>
+        <linearGradient id="capRing" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#e8edf5"/>
+          <stop offset="0.5" stop-color="#8b95a8"/>
+          <stop offset="1" stop-color="#2c3445"/>
+        </linearGradient>
+        <radialGradient id="capWell" cx="0.5" cy="0.4" r="0.6">
+          <stop offset="0"   stop-color="#06090f"/>
+          <stop offset="0.7" stop-color="#0c1220"/>
+          <stop offset="1"   stop-color="#1d2942"/>
+        </radialGradient>
+
+        <radialGradient id="ledOff" cx="0.4" cy="0.4" r="0.6">
+          <stop offset="0" stop-color="#5e2a2a"/>
+          <stop offset="1" stop-color="#1a0a0a"/>
+        </radialGradient>
+        <radialGradient id="ledOn" cx="0.4" cy="0.4" r="0.7">
+          <stop offset="0" stop-color="#ffe7b0"/>
+          <stop offset="0.4" stop-color="#ff1100"/>
+          <stop offset="1" stop-color="#5a0000"/>
+        </radialGradient>
+        <filter id="ledGlow" x="-200%" y="-200%" width="500%" height="500%">
+          <feGaussianBlur stdDeviation="2.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+
+        <linearGradient id="lcdBg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#071a55"/>
+          <stop offset="0.5" stop-color="#0a2580"/>
+          <stop offset="1" stop-color="#061645"/>
+        </linearGradient>
+        <radialGradient id="lcdVignette" cx="0.5" cy="0.5" r="0.7">
+          <stop offset="0.6" stop-color="#000" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000" stop-opacity="0.4"/>
+        </radialGradient>
+        <filter id="lcdGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.4" result="b1"/>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="0.6" result="b2"/>
+          <feMerge>
+            <feMergeNode in="b1"/>
+            <feMergeNode in="b1"/>
+            <feMergeNode in="b2"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+
+        <filter id="boardShadow" x="-10%" y="-10%" width="120%" height="140%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+          <feOffset dx="0" dy="18" result="off"/>
+          <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+          <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+
+        <g id="footswitch">
+          <circle cx="0" cy="1" r="11" fill="#000" opacity="0.6"/>
+          <circle cx="0" cy="0" r="11" fill="url(#capWell)"/>
+          <circle cx="0" cy="0" r="11" fill="none" stroke="#003566" stroke-width="0.8"/>
+          <polygon points="0,-11 9.5,-5.5 9.5,5.5 0,11 -9.5,5.5 -9.5,-5.5" fill="url(#capRing)"/>
+          <polygon points="0,-11 9.5,-5.5 9.5,5.5 0,11 -9.5,5.5 -9.5,-5.5" fill="none" stroke="#0a0f1a" stroke-width="0.5"/>
+          <circle cx="0" cy="0" r="7" fill="#0c1220"/>
+          <ellipse cx="0" cy="2" rx="6.5" ry="6" fill="#000" opacity="0.7"/>
+          <circle cx="0" cy="-0.5" r="6" fill="url(#capTop)"/>
+          <ellipse cx="-1.6" cy="-2.8" rx="2.6" ry="1.1" fill="#ffffff" opacity="0.8"/>
+          <ellipse cx="1.4" cy="1.6" rx="1.7" ry="0.6" fill="#ffffff" opacity="0.2"/>
+          <circle cx="0" cy="-0.5" r="0.6" fill="#2a3142" opacity="0.7"/>
+        </g>
+      </defs>
+
+      <ellipse cx="550" cy="588" rx="470" ry="14" fill="#000" opacity="0.55"/>
+
+      <g filter="url(#boardShadow)">
+        <rect x="40" y="40" width="1020" height="510" rx="10" fill="url(#chassis)"/>
+        <rect x="40" y="40" width="1020" height="510" rx="10" fill="url(#brush)"/>
+        <rect x="40" y="40" width="1020" height="10" rx="10" fill="url(#chassisBevel)"/>
+
+        <rect x="40" y="235" width="1020" height="30" fill="#0b174d"/>
+        <rect x="40" y="355" width="1020" height="30" fill="#0b174d"/>
+        <rect x="40" y="485" width="1020" height="30" fill="#0b174d"/>
+
+        <g id="ridges">
+          <rect x="40" y="168" width="1020" height="2" fill="#003566" opacity="0.8"/>
+          <rect x="40" y="170" width="1020" height="3" fill="#000" opacity="0.6"/>
+          <rect x="40" y="173" width="1020" height="1" fill="#33b5fc" opacity="0.6"/>
+
+          <rect x="40" y="280" width="1020" height="2" fill="#003566" opacity="0.8"/>
+          <rect x="40" y="282" width="1020" height="3" fill="#000" opacity="0.6"/>
+          <rect x="40" y="285" width="1020" height="1" fill="#33b5fc" opacity="0.6"/>
+
+          <rect x="40" y="405" width="1020" height="2" fill="#003566" opacity="0.8"/>
+          <rect x="40" y="407" width="1020" height="3" fill="#000" opacity="0.6"/>
+          <rect x="40" y="410" width="1020" height="1" fill="#33b5fc" opacity="0.6"/>
+        </g>
+
+        <!-- LCD module: outer frame 68,70,394,68 / inner panel 74,76,382,56
+             matches the fcLcd() renderer constants in the page script. -->
+        <g id="lcd-module">
+          <rect x="68" y="70" width="394" height="68" rx="2" fill="#1a1a1a"/>
+          <rect x="68" y="70" width="394" height="68" rx="2" fill="none" stroke="#000" stroke-width="1"/>
+          <rect x="74" y="76" width="382" height="56" rx="1" fill="#000"/>
+          <rect x="74" y="76" width="382" height="56" rx="1" fill="url(#lcdBg)" opacity="0.6"/>
+          <g id="lcd-segments" filter="url(#lcdGlow)"></g>
+          <rect x="74" y="76" width="382" height="56" rx="1" fill="url(#lcdVignette)" pointer-events="none"/>
+          <rect x="74" y="76" width="382" height="16" rx="1" fill="#ffffff" opacity="0.06" pointer-events="none"/>
+        </g>
+
+        <g id="brand-plate">
+          <text x="660" y="118" text-anchor="middle"
+                font-family="'Cormorant Garamond', serif"
+                font-size="52" font-weight="500" font-style="italic" letter-spacing="4"
+                fill="#eaf2ff">ALL ACCESS</text>
+
+          <circle cx="660" cy="100" r="14" fill="none" stroke="#eaf2ff" stroke-width="1.5"/>
+          <path d="M 660 86 Q 670 100 660 114 M 660 86 Q 650 100 660 114 M 646 100 L 674 100 M 650 93 L 670 93 M 650 107 L 670 107" fill="none" stroke="#eaf2ff" stroke-width="1"/>
+
+          <text x="880" y="94" text-anchor="start" font-family="'Inter', sans-serif" font-weight="900" font-size="28" letter-spacing="1" fill="#eaf2ff">ROCKTRON</text>
+          <text x="880" y="106" text-anchor="start" font-family="'Inter', sans-serif" font-weight="700" font-size="8" letter-spacing="1" fill="#eaf2ff">GUITAR RACK TECHNOLOGY</text>
+          <line x1="880" y1="112" x2="1030" y2="112" stroke="#eaf2ff" stroke-width="1.5"/>
+          <text x="880" y="125" text-anchor="start" font-family="'Inter', sans-serif" font-weight="700" font-size="12" letter-spacing="2" fill="#eaf2ff">TOURING MODEL</text>
+        </g>
+
+        <!-- Footswitch grid: 3 rows × 6 cols (visible caps only) -->
+        <g id="switches">
+          <g transform="translate(0, 215)">
+            <use href="#footswitch" x="120"  y="0"/>
+            <use href="#footswitch" x="290"  y="0"/>
+            <use href="#footswitch" x="470"  y="0"/>
+            <use href="#footswitch" x="650"  y="0"/>
+            <use href="#footswitch" x="830"  y="0"/>
+            <use href="#footswitch" x="1010" y="0"/>
+          </g>
+          <g transform="translate(0, 335)">
+            <use href="#footswitch" x="120"  y="0"/>
+            <use href="#footswitch" x="290"  y="0"/>
+            <use href="#footswitch" x="470"  y="0"/>
+            <use href="#footswitch" x="650"  y="0"/>
+            <use href="#footswitch" x="830"  y="0"/>
+            <use href="#footswitch" x="1010" y="0"/>
+          </g>
+          <g transform="translate(0, 465)">
+            <use href="#footswitch" x="120"  y="0"/>
+            <use href="#footswitch" x="290"  y="0"/>
+            <use href="#footswitch" x="470"  y="0"/>
+            <use href="#footswitch" x="650"  y="0"/>
+            <use href="#footswitch" x="830"  y="0"/>
+            <use href="#footswitch" x="1010" y="0"/>
+          </g>
+        </g>
+
+        <!-- LEDs above each numbered switch (no LEDs over the bank column) -->
+        <g id="leds">
+          <g transform="translate(0, 185)">
+            <rect x="286" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="11"/>
+            <rect x="466" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="12"/>
+            <rect x="646" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="13"/>
+            <rect x="826" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="14"/>
+            <rect x="1006" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="15"/>
+          </g>
+          <g transform="translate(0, 305)">
+            <rect x="286" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="6"/>
+            <rect x="466" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="7"/>
+            <rect x="646" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="8"/>
+            <rect x="826" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="9"/>
+            <rect x="1006" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="10"/>
+          </g>
+          <g transform="translate(0, 435)">
+            <rect x="286" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="1"/>
+            <rect x="466" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="2"/>
+            <rect x="646" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="3"/>
+            <rect x="826" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="4"/>
+            <rect x="1006" y="0" width="8" height="4" rx="1" fill="url(#ledOff)" data-led="5"/>
+          </g>
+        </g>
+
+        <!-- Switch captions: small 2ND-function labels printed above each
+             switch, plus the large primary identifier below. The big labels
+             on switches 1-15 carry id="aa-label-N" so renderFCSwitches() can
+             rewrite SW6..SW15 with IA names (VOX1, DIEZ, MARS, …). -->
+        <g text-anchor="middle">
+          <g font-family="'Inter', sans-serif" font-weight="700" font-size="8" fill="#ffffff" opacity="0.8">
+            <text x="290"  y="196">MIDI</text>
+            <text x="470"  y="196">COPY</text>
+            <text x="650"  y="196">TITLES</text>
+            <text x="830"  y="196">SONG/SET</text>
+            <text x="1010" y="196">CTR STORE</text>
+
+            <text x="120"  y="316">INC</text>
+            <text x="290"  y="316">INC</text>
+            <text x="470"  y="316">INC</text>
+            <text x="650"  y="316">&#8592;</text>
+            <text x="830"  y="316">&#8594;</text>
+            <text x="1010" y="316">SETUP</text>
+
+            <text x="120"  y="446">DEC</text>
+            <text x="290"  y="446">DEC</text>
+            <text x="470"  y="446">DEC</text>
+            <text x="830"  y="446">CUSTOM</text>
+            <text x="1010" y="446">SYSX</text>
+          </g>
+
+          <g font-family="'Inter', sans-serif" font-weight="700" font-size="16" fill="#eaf2ff">
+            <text x="120" y="256">2ND</text>
+            <text x="290"  y="256" id="aa-label-11">11</text>
+            <text x="470"  y="256" id="aa-label-12">12</text>
+            <text x="650"  y="256" id="aa-label-13">13</text>
+            <text x="830"  y="256" id="aa-label-14">14</text>
+            <text x="1010" y="256" id="aa-label-15">15</text>
+
+            <text x="120" y="376">UP</text>
+            <text x="290"  y="376" id="aa-label-6">6</text>
+            <text x="470"  y="376" id="aa-label-7">7</text>
+            <text x="650"  y="376" id="aa-label-8">8</text>
+            <text x="830"  y="376" id="aa-label-9">9</text>
+            <text x="1010" y="376" id="aa-label-10">10</text>
+
+            <text x="120" y="506">DOWN</text>
+            <text x="290"  y="506" id="aa-label-1">1</text>
+            <text x="470"  y="506" id="aa-label-2">2</text>
+            <text x="650"  y="506" id="aa-label-3">3</text>
+            <text x="830"  y="506" id="aa-label-4">4</text>
+            <text x="1010" y="506" id="aa-label-5">5</text>
+          </g>
+        </g>
+
+        <!-- Hit targets — generous radius so clicks land even on the cap edge.
+             data-sw-num / data-ctrl-kind drive the existing delegated click
+             handler that walks elementsFromPoint up to find these. -->
+        <g id="hit-targets" fill="transparent" style="cursor:pointer">
+          <circle id="fs-bank-2nd"  cx="120"  cy="215" r="22" data-ctrl-kind="2nd"/>
+          <circle id="fs-bank-up"   cx="120"  cy="335" r="22" data-ctrl-kind="up"/>
+          <circle id="fs-bank-down" cx="120"  cy="465" r="22" data-ctrl-kind="down"/>
+
+          <circle id="fs-11" cx="290"  cy="215" r="22" data-sw-num="11"/>
+          <circle id="fs-12" cx="470"  cy="215" r="22" data-sw-num="12"/>
+          <circle id="fs-13" cx="650"  cy="215" r="22" data-sw-num="13"/>
+          <circle id="fs-14" cx="830"  cy="215" r="22" data-sw-num="14"/>
+          <circle id="fs-15" cx="1010" cy="215" r="22" data-sw-num="15"/>
+
+          <circle id="fs-6"  cx="290"  cy="335" r="22" data-sw-num="6"/>
+          <circle id="fs-7"  cx="470"  cy="335" r="22" data-sw-num="7"/>
+          <circle id="fs-8"  cx="650"  cy="335" r="22" data-sw-num="8"/>
+          <circle id="fs-9"  cx="830"  cy="335" r="22" data-sw-num="9"/>
+          <circle id="fs-10" cx="1010" cy="335" r="22" data-sw-num="10"/>
+
+          <circle id="fs-1"  cx="290"  cy="465" r="22" data-sw-num="1"/>
+          <circle id="fs-2"  cx="470"  cy="465" r="22" data-sw-num="2"/>
+          <circle id="fs-3"  cx="650"  cy="465" r="22" data-sw-num="3"/>
+          <circle id="fs-4"  cx="830"  cy="465" r="22" data-sw-num="4"/>
+          <circle id="fs-5"  cx="1010" cy="465" r="22" data-sw-num="5"/>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+
+  <!-- ── Live MIDI activity log — textual mirror of every PC/CC the
+       virtual controller sends and that comes back from the device. -->
+  <div class="midi-activity panel" style="max-width:1240px;margin:14px auto;">
+    <h3>MIDI Activity</h3>
+    <div id="midi-activity-list">
+      <div class="ma-empty">Click a foot switch or press a button on the
+        Rocktron to see MIDI traffic here.</div>
+    </div>
+    <div style="font-size:11px;color:var(--mute);margin-top:6px;">
+      Last 80 events, newest at top. TX = sent by the editor / virtual
+      controller, RX = received from the Rocktron's MIDI Out.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Expression Pedals</h3>
+    <div class="fc-bank-row">
+      <div class="fc-pedal">
+        <span>PED1</span>
+        <input type="range" min="0" max="127" value="0" id="fc-ped1"
+               oninput="fcPedal(1, this.value)">
+        <span id="fc-ped1-val" style="width:36px">0</span>
+      </div>
+      <div class="fc-pedal">
+        <span>PED2</span>
+        <input type="range" min="0" max="127" value="0" id="fc-ped2"
+               oninput="fcPedal(2, this.value)">
+        <span id="fc-ped2-val" style="width:36px">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Quick send (free MIDI)</h3>
+    <div class="row">
+      <label>Channel <input type="number" id="q-ch" min="1" max="16" value="1" style="width:60px"></label>
+      <label>Type <select id="q-type"><option>pc</option><option>cc</option><option>note-on</option><option>note-off</option></select></label>
+      <label>Num <input type="number" id="q-num" min="0" max="127" value="0" style="width:70px"></label>
+      <label>Val <input type="number" id="q-val" min="0" max="127" value="127" style="width:70px"></label>
+      <button class="primary" onclick="quickSend()">Send</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────── Monitor ─────────────────────── -->
+<section id="tab-monitor" class="tab-content">
+  <div class="panel">
+    <div class="row" style="margin-bottom:6px">
+      <button onclick="clearMonitor()">Clear</button>
+      <label><input type="checkbox" id="mon-scroll" checked> Auto-scroll</label>
+      <span style="color:var(--mute);margin-left:10px;">
+        TX / RX on selected ports. SysEx frames are accumulated whole.
+      </span>
+    </div>
+    <div class="monitor" id="monitor"></div>
+  </div>
+</section>
+
+<!-- ─────────────────────── About ─────────────────────── -->
+<section id="tab-about" class="tab-content">
+  <div class="panel" style="max-width:920px">
+    <h3>Rocktron All Access — Web Editor &amp; Virtual Foot Controller</h3>
+    <p>Browser-based editor for the Rocktron All Access MIDI foot controller
+       (1994). Reverse-engineered from a single bulk dump and 6 targeted
+       capture/diff dumps. Manufacturer ID <code>00 00 29</code>, Device ID
+       <code>08</code>; bulk dump = 145 sysex frames totalling 43 647 bytes.</p>
+
+    <h3 style="margin-top:18px;">What you can edit</h3>
+    <ul>
+      <li><b>Preset name</b> — 13 chars, A-Z 0-9 (the device's <code>.</code> renders as space).</li>
+      <li><b>16 PC slots per preset</b> — value (0-127) + active/OFF flag, one per MIDI channel.</li>
+      <li><b>Instant-access on/off bitmap</b> — all 15 SWs (SW1-15), saved per preset via CTR STORE.</li>
+      <li><b>Custom MIDI commands</b> — 4 of the 5 CMD slots per preset (CMD5 location TBD).</li>
+      <li><b>SysEx string</b> — 30 bytes per preset + ON/OFF toggle.</li>
+      <li><b>Songs</b> — all 150 songs, 10 preset slots each.</li>
+      <li><b>Sets</b> — all 10 sets, 50 banks → song mapping each.</li>
+      <li><b>PC Map</b> — 128 incoming PC → preset slots.</li>
+      <li><b>Channel / switch / pedal names</b> — 4-char custom names spliced into the name block.</li>
+      <li><b>Globals</b> — Operating Mode, Bank Size, Bank Style, MIDI Receive Channel
+          (incl. OMNI), Starting Preset, Remote Title, Program Change Status.</li>
+    </ul>
+
+    <h3 style="margin-top:18px;">What's read-only / partial</h3>
+    <ul>
+      <li><b>Switch type</b> (LATCH/MOM/HOLD per IA switch) — encoding decoded but
+          slot indexing scheme is stack-style and not fully mapped, so it's
+          hidden from the UI for safety.</li>
+      <li><b>5th custom MIDI command (CMD5)</b> — its byte position would
+          overlap the SysEx region; only CMD1-4 are exposed.</li>
+      <li><b>Per-preset PER-PR override block</b> — partial; UI not wired yet.</li>
+      <li><b>MIDI filter mask</b> — single bit-edit confirmed, full bitmap
+          layout not yet decoded.</li>
+    </ul>
+
+    <h3 style="margin-top:18px;">Workflow</h3>
+    <ol>
+      <li>Connect the All Access via USB-MIDI (7-pin DIN works fine — pins 1/3
+          carry MIDI, 6/7 carry phantom power).</li>
+      <li>Pick your IN and OUT ports from the header dropdowns. LEDs go green when open.</li>
+      <li><b>Read All</b> (cloud-down icon) — arms the editor; trigger
+          <code>SYSX → DUMP → CTR STORE</code> on the device.</li>
+      <li>Edit any field in any tab. Each section's <b>Save</b> button splices
+          your changes into the loaded dump bytes (non-destructive — every other
+          byte preserved).</li>
+      <li><b>Save .syx</b> (floppy icon) — downloads the current in-memory dump
+          to your <code>~/Downloads</code> as a backup.</li>
+      <li><b>Write All</b> (yellow upload icon) — sends the whole dump to the
+          device. Put the unit on <code>SYSX → LOAD</code> first. Throttled to
+          ~65 Hz per the manual to avoid Buffer Overflow.</li>
+    </ol>
+
+    <h3 style="margin-top:18px;">Documentation</h3>
+    <p>Companion docs in <code>docs/</code>:</p>
+    <ul>
+      <li><b>GETTING_STARTED.md</b> — install &amp; first-run guide (start here).</li>
+      <li><b>USER_MANUAL.md</b> — full editor walkthrough.</li>
+      <li><b>REVERSE_ENGINEERING.md</b> — byte-level field map of the dump format.</li>
+      <li><b>MANUAL_SUMMARY.md</b> / <b>MIDI_SPEC.md</b> — sysex protocol &amp; MIDI
+          implementation chart extracted from the original manual.</li>
+    </ul>
+
+    <h3 style="margin-top:18px;">Support this project</h3>
+    <p>If this editor saved your All Access from the junk drawer, you can
+       <a href="https://buymeacoffee.com/sungle.spec" target="_blank"
+          rel="noopener" style="color:var(--accent);font-weight:600;">
+          buy me a coffee ☕</a> — it keeps the reverse engineering going.
+    </p>
+
+    <p style="color:var(--mute);font-size:11px;margin-top:14px;">
+       MIT license. Reverse-engineered from real hardware over six iterative
+       capture/diff cycles. Acknowledgments in the README.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+// ── CSRF shim ─────────────────────────────────────────────────────────────
+// security_patch.install_security() returns a per-session token in the
+// X-AA-CSRF response header and requires it back on every state-changing
+// /api/* call. Wrap window.fetch once so all existing call sites get it
+// transparently. GETs are exempt — they only need the Origin check.
+let AA_CSRF = null;
+const _origFetch = window.fetch;
+window.fetch = (url, opts = {}) => {
+  opts.headers = Object.assign({}, opts.headers || {});
+  const method = (opts.method || 'GET').toUpperCase();
+  if (AA_CSRF && typeof url === 'string' && /^\/api\//.test(url) && method !== 'GET')
+    opts.headers['X-AA-CSRF'] = AA_CSRF;
+  return _origFetch(url, opts).then(r => {
+    const t = r.headers.get('X-AA-CSRF');
+    if (t) AA_CSRF = t;
+    return r;
+  });
+};
+// Prime the token with a GET (any /api/ route returns the header).
+fetch('/api/dump/status').catch(()=>{});
+
+// ── state ─────────────────────────────────────────────────────────────────
+let socket = io();
+let state = { presets: [], channel_names: [], switch_names: {pedals:[],switches:[]},
+              pc_map: [], songs: [], sets: [], globals: null,
+              global_config: null, selectedPreset: null, bank: 0, second: false };
+
+const $ = id => document.getElementById(id);
+
+function toast(msg, isErr) {
+  const t = $('toast'); t.textContent = msg;
+  t.style.background = isErr ? '#b22' : '#333';
+  t.style.display = 'block';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>t.style.display='none', 2200);
+}
+
+// ── tab switching ─────────────────────────────────────────────────────────
+// Only buttons with a data-tab attribute are section tabs; toolbar
+// buttons (.tab-tool) live in the same nav band but have their own
+// onclick handlers and shouldn't trigger a tab change.
+document.querySelectorAll('nav.tabs button[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button[data-tab]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(s=>s.classList.remove('active'));
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── MIDI port dropdowns + connection LEDs ───────────────────────────────
+// Lightweight replacement for the old prompt() based picker. Two
+// <select>s in the header: pick a port, the change handler opens it
+// on the server, the LED next to it goes green when something is
+// actually selected. Dropdowns auto-refresh every 4s so hot-plugged
+// USB MIDI interfaces appear without a page reload.
+let _portsCache = {in: [], out: []};
+
+async function refreshPortDropdowns() {
+  const r = await fetch('/api/midi/ports').then(r=>r.json());
+  if (r.error) return;
+  _portsCache = r;
+  fillSelect('midi-in-select',  r.in,  r.selected_in);
+  fillSelect('midi-out-select', r.out, r.selected_out);
+  refreshMidiStatus(r);
+}
+function fillSelect(id, ports, selected) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Don't redraw if user is mid-interaction with the menu open
+  if (document.activeElement === el) return;
+  // De-duplicate visible names but keep their original index for the
+  // backend to disambiguate (e.g. two ports both called "SysEx Librarian").
+  const seen = new Map();
+  ports.forEach((p, i) => {
+    const key = p + '\u0001' + i;  // unique value
+    seen.set(key, p);
+  });
+  el.innerHTML = '<option value="">— select —</option>'
+    + Array.from(seen.entries()).map(([k, label]) =>
+        `<option value="${escapeHtml(label)}"${label===selected?' selected':''}>${escapeHtml(label)}</option>`
+      ).join('');
+}
+
+async function onPortSelectChange() {
+  const inP  = document.getElementById('midi-in-select').value;
+  const outP = document.getElementById('midi-out-select').value;
+  const res = await fetch('/api/midi/open', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({in_port: inP || null, out_port: outP || null}),
+  }).then(r=>r.json());
+  refreshMidiStatus(res.ports);
+  toast(`MIDI ports: in=${inP || '—'}  out=${outP || '—'}`);
+}
+
+function refreshMidiStatus(p) {
+  // Hidden compat targets
+  const sIn  = document.getElementById('midi-in-status');
+  const sOut = document.getElementById('midi-out-status');
+  if (sIn)  sIn.textContent  = p.selected_in  || '—';
+  if (sOut) sOut.textContent = p.selected_out || '—';
+  // Connection LEDs
+  document.getElementById('led-in') ?.classList.toggle('on', !!p.selected_in);
+  document.getElementById('led-out')?.classList.toggle('on', !!p.selected_out);
+}
+// Keep dropdowns + LEDs fresh
+setInterval(refreshPortDropdowns, 4000);
+
+// ── dump load / send ──────────────────────────────────────────────────────
+async function loadDumpDialog() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.syx,.mid,.bin';
+  inp.onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const hex = [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    await sendDumpLoad({hex, filename:file.name});
+  };
+  inp.click();
+}
+
+async function sendDumpLoad(body) {
+  const r = await fetch('/api/dump/load', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Load failed: ' + (r.error||'unknown'), true); return; }
+  state.presets = r.presets; state.channel_names = r.channel_names;
+  state.switch_names = r.switch_names;
+  state.pc_map = r.pc_map || []; state.songs = r.songs || [];
+  state.sets = r.sets || []; state.globals = r.globals || null;
+  state.dumpComplete = r.complete !== false;
+  $('dump-status').textContent = `${r.presets.length} presets (${r.frame_count} frames)`;
+  enableDumpButtons();
+  renderPresetList();
+  renderChannelNames();
+  applyDumpGlobalsToUI();
+  applyPartialDumpBanner();
+  toast('Loaded ' + r.loaded_from);
+}
+
+// Server marks the dump as `complete: false` when it isn't the full 145-frame
+// multiset. A partial capture is fine to inspect/edit but must NOT be written
+// to the device — Write All would overwrite valid presets with empty frames.
+function applyPartialDumpBanner() {
+  let bar = $('partial-dump-banner');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'partial-dump-banner';
+    bar.style.cssText = 'background:#5a3300;border:1px solid #ffb000;'
+      + 'color:#ffd28a;padding:8px 12px;margin:8px auto;max-width:1240px;'
+      + 'border-radius:4px;font-size:12px;display:none;';
+    document.body.insertBefore(bar, document.body.firstChild);
+  }
+  if (state.dumpComplete === false) {
+    bar.textContent = 'Partial / incomplete dump — Write All is disabled. '
+      + 'Re-capture a full dump (145 frames) before pushing to the device.';
+    bar.style.display = 'block';
+    const w = $('btn-write-all'); if (w) w.disabled = true;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function applyDumpGlobalsToUI() {
+  if (!state.globals) return;
+  const g = state.globals;
+  if (g.operating_mode) $('g-bank-mode').value = g.operating_mode;
+  if (g.bank_size != null) $('g-bank-size').value = String(g.bank_size);
+  if (g.bank_style) $('g-bank-style').value = g.bank_style;
+  if (g.midi_rx_channel === 'OMNI') {
+    $('g-rx-omni').checked = true;
+    $('g-rx-ch').disabled = true;
+  } else if (g.midi_rx_channel != null) {
+    $('g-rx-ch').value = g.midi_rx_channel;
+    $('g-rx-omni').checked = false;
+    $('g-rx-ch').disabled = false;
+  }
+  if (g.remote_title != null && $('g-remote-title')) $('g-remote-title').value = g.remote_title;
+  if (g.pc_status && $('g-pc-status')) $('g-pc-status').value = g.pc_status;
+  populateSongPicker(); populateSetPicker(); renderPCMap();
+}
+
+// ── Songs ──────────────────────────────────────────────────────────────
+function populateSongPicker() {
+  const sel = $('songs-pick'); if (!sel) return;
+  const cur = sel.value || '1';
+  sel.innerHTML = '';
+  for (let i = 1; i <= 150; i++) {
+    sel.innerHTML += `<option value="${i}">SG${String(i).padStart(3,'0')}</option>`;
+  }
+  sel.value = cur;
+  renderSong();
+}
+
+function presetOptionList(selectedNum) {
+  let html = `<option value="">— off —</option>`;
+  state.presets.forEach(p => {
+    html += `<option value="${p.num}" ${p.num === selectedNum ? 'selected' : ''}>PR${String(p.num).padStart(3,'0')} ${escapeHtml((p.name||'').trim())}</option>`;
+  });
+  return html;
+}
+
+function renderSong() {
+  const sel = $('songs-pick'); if (!sel) return;
+  const num = parseInt(sel.value || '1', 10);
+  const song = (state.songs || []).find(s => s.idx === num);
+  const tbl = $('song-slots');
+  if (!song) { tbl.innerHTML = '<tr><td>No song data</td></tr>'; return; }
+  let html = '';
+  for (let i = 0; i < 10; i++) {
+    const v = song.slots[i];
+    const presetNum = v == null ? null : v + 1;
+    html += `<tr><th style="width:80px">Slot ${i+1}</th><td>
+      <select data-song-slot="${i}">${presetOptionList(presetNum)}</select>
+    </td></tr>`;
+  }
+  tbl.innerHTML = html;
+}
+
+async function saveSong() {
+  const num = parseInt($('songs-pick').value, 10);
+  const slots = [];
+  document.querySelectorAll('#song-slots [data-song-slot]').forEach(sel => {
+    const v = sel.value === '' ? null : parseInt(sel.value, 10);
+    slots.push(v);
+  });
+  const r = await fetch(`/api/song/${num}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({slots}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Song save failed: ' + (r.error||''), true); return; }
+  // Replace just this song in state
+  const i = state.songs.findIndex(s => s.idx === num);
+  if (i >= 0) state.songs[i] = r.song;
+  toast(`SONG${String(num).padStart(3,'0')} saved`);
+}
+
+// ── Sets ───────────────────────────────────────────────────────────────
+function populateSetPicker() {
+  const sel = $('sets-pick'); if (!sel) return;
+  const cur = sel.value || '1';
+  sel.innerHTML = '';
+  for (let i = 1; i <= 10; i++) sel.innerHTML += `<option value="${i}">SET${i}</option>`;
+  sel.value = cur;
+  renderSet();
+}
+
+function songOptionList(selectedNum) {
+  let html = `<option value="">— off —</option>`;
+  for (let i = 1; i <= 150; i++) {
+    html += `<option value="${i}" ${i === selectedNum ? 'selected' : ''}>SG${String(i).padStart(3,'0')}</option>`;
+  }
+  return html;
+}
+
+function renderSet() {
+  const sel = $('sets-pick'); if (!sel) return;
+  const num = parseInt(sel.value || '1', 10);
+  const setObj = (state.sets || []).find(s => s.idx === num);
+  const grid = $('set-banks');
+  if (!setObj) { grid.innerHTML = '<div>No set data</div>'; return; }
+  let html = '';
+  for (let b = 0; b < 50; b++) {
+    const v = setObj.banks[b];
+    html += `<div style="display:flex;flex-direction:column;gap:2px;">
+      <span style="font-size:10px;color:var(--mute);">BK${String(b+1).padStart(2,'0')}</span>
+      <select data-set-bank="${b}" style="font-size:11px;">${songOptionList(v)}</select>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+async function saveSet() {
+  const num = parseInt($('sets-pick').value, 10);
+  const banks = [];
+  document.querySelectorAll('#set-banks [data-set-bank]').forEach(sel => {
+    const v = sel.value === '' ? null : parseInt(sel.value, 10);
+    banks.push(v);
+  });
+  const r = await fetch(`/api/set/${num}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({banks}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Set save failed: ' + (r.error||''), true); return; }
+  const i = state.sets.findIndex(s => s.idx === num);
+  if (i >= 0) state.sets[i] = r.set;
+  toast(`SET${num} saved`);
+}
+
+// ── PC Map ─────────────────────────────────────────────────────────────
+function renderPCMap() {
+  const grid = $('pcmap-grid'); if (!grid) return;
+  const m = state.pc_map || [];
+  let html = '';
+  for (let i = 0; i < 128; i++) {
+    const v = m[i];
+    const presetNum = v == null ? null : v + 1;
+    html += `<div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+      <span style="font-size:10px;color:var(--mute);">PC${String(i+1).padStart(3,'0')}</span>
+      <select data-pcmap="${i}" style="font-size:11px;width:100%;max-width:100%;">${presetOptionList(presetNum)}</select>
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+async function savePCMap() {
+  const map = [];
+  document.querySelectorAll('#pcmap-grid [data-pcmap]').forEach(sel => {
+    map.push(sel.value === '' ? null : parseInt(sel.value, 10));
+  });
+  const r = await fetch('/api/pcmap', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({map}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('PC map save failed: ' + (r.error||''), true); return; }
+  state.pc_map = r.pc_map;
+  toast('PC map saved');
+  renderPCMap();
+}
+
+function resetPCMapIdentity() {
+  document.querySelectorAll('#pcmap-grid [data-pcmap]').forEach(sel => {
+    const i = parseInt(sel.dataset.pcmap, 10);
+    sel.value = String(Math.min(120, i + 1));
+  });
+}
+
+// ── Channel / switch / pedal names → write back ───────────────────────
+async function saveNamesToDump() {
+  const channels = [];
+  document.querySelectorAll('#channel-names-grid input[data-ch]').forEach(inp => {
+    channels[parseInt(inp.dataset.ch, 10)] = inp.value.toUpperCase().slice(0, 4);
+  });
+  const switches = [];
+  document.querySelectorAll('#switch-names-grid input[data-sw]').forEach(inp => {
+    switches[parseInt(inp.dataset.sw, 10)] = inp.value.toUpperCase().slice(0, 4);
+  });
+  const pedals = [];
+  document.querySelectorAll('#pedal-names-grid input[data-pd]').forEach(inp => {
+    pedals[parseInt(inp.dataset.pd, 10)] = inp.value.toUpperCase().slice(0, 4);
+  });
+  const r = await fetch('/api/names', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({channel_names: channels, switch_names: {pedals, switches}}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Names save failed: ' + (r.error||''), true); return; }
+  state.channel_names = r.channel_names;
+  state.switch_names = r.switch_names;
+  toast('Names saved to dump');
+  renderChannelNames();
+}
+
+// ── Write All pacing ───────────────────────────────────────────────────
+// Pacing is hard-locked server-side to the manual's 1-byte-per-15-ms spec.
+// The pacing panel in the Globals tab is purely informational. No client-
+// side controls — see /api/writeback-pacing for the locked values.
+async function loadPacing() {
+  // No-op: panel values are baked into the HTML now.  This stub stays so
+  // existing boot-time call sites keep working.
+}
+
+// ── Globals: write back to dump ────────────────────────────────────────
+async function saveGlobalToDump() {
+  const body = {
+    operating_mode: $('g-bank-mode').value,
+    bank_size: parseInt($('g-bank-size').value, 10),
+    bank_style: $('g-bank-style').value,
+    midi_rx_channel: $('g-rx-omni').checked ? 'OMNI' : parseInt($('g-rx-ch').value, 10),
+  };
+  const rt = $('g-remote-title');
+  if (rt && rt.value !== '') body.remote_title = parseInt(rt.value, 10);
+  if ($('g-pc-status')) body.pc_status = $('g-pc-status').value;
+  const r = await fetch('/api/dump-globals', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Globals save failed: ' + (r.error||''), true); return; }
+  state.globals = r.globals;
+  toast('Globals saved to dump');
+}
+
+function enableDumpButtons() {
+  $('btn-write-all').disabled = false;
+  const save = document.getElementById('btn-save-dump');
+  if (save) save.disabled = false;
+  $('btn-read-preset').disabled = false;
+  // write-preset is enabled once a preset is selected
+}
+
+async function sendDump() {
+  if (!confirm('Write All — send entire dump to device?\n\nPut the unit on SYSX page 1 → LOAD first.')) return;
+  const r = await fetch('/api/dump/send', {method:'POST'}).then(r=>r.json());
+  if (!r.ok) { toast('Write All failed: ' + (r.error||''), true); return; }
+  toast(`Writing ${r.frames} frames…`);
+}
+
+// Save the current in-memory dump to a .syx file (browser download).
+function saveDump() {
+  // /api/dump/save returns 400 if no dump is loaded; the button is
+  // disabled in that case so this should always succeed when fired.
+  window.location = '/api/dump/save';
+  toast('Saving rocktron-*.syx to your Downloads folder');
+}
+
+async function writePreset() {
+  const num = state.selectedPreset;
+  if (!num) { toast('Select a preset first', true); return; }
+  if (!confirm(`Write Preset PR${String(num).padStart(3,'0')} to device?\n\nPut the unit on SYSX page 1 → LOAD first.`)) return;
+  const r = await fetch(`/api/preset/${num}/send`, {method:'POST'}).then(r=>r.json());
+  if (!r.ok) { toast('Write Preset failed: ' + (r.error||''), true); return; }
+  toast(`PR${String(num).padStart(3,'0')} sent (${r.bytes} B)`);
+}
+
+async function readAll() { startCapture('all'); }
+async function readPreset() {
+  if (!state.selectedPreset) { toast('Select a preset first', true); return; }
+  startCapture('preset:' + state.selectedPreset);
+}
+async function startCapture(target) {
+  if (!confirm('Read mode — listening for an incoming bulk dump.\n\n' +
+               'On the All Access: hold 2ND + MIDI → SYSX page 1 → DUMP, then press CTR STORE.')) return;
+  const r = await fetch('/api/dump/capture', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({target}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Read failed: ' + (r.error||''), true); return; }
+  toast('Capture armed — initiate DUMP on the device');
+  $('dump-status').textContent = 'capturing… 0 frames';
+}
+
+// ── preset list & detail ──────────────────────────────────────────────────
+function renderPresetList() {
+  const el = $('preset-list'); el.innerHTML = '';
+  state.presets.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'preset-row';
+    row.innerHTML = `<span class="n">${p.num}</span>
+                     <span class="n2">PR${String(p.num).padStart(3,'0')}</span>
+                     <span>${escapeHtml(p.name || '')}</span>`;
+    row.onclick = () => selectPreset(p.num);
+    el.appendChild(row);
+  });
+}
+
+function selectPreset(num) {
+  state.selectedPreset = num;
+  $('btn-write-preset').disabled = false;
+  document.querySelectorAll('.preset-row').forEach((r,i)=>{
+    r.classList.toggle('active', i === num-1);
+  });
+  const p = state.presets[num-1];
+  const det = $('preset-detail');
+  det.innerHTML = `
+    <table class="kv">
+      <tr><th>Number</th><td>PR${String(p.num).padStart(3,'0')}</td></tr>
+      <tr><th>Name (13 chars)</th><td>
+        <input type="text" id="p-name" maxlength="13" value="${escapeHtml(p.name||'')}" style="width:200px; text-transform:uppercase;">
+        <button class="primary save-btn" onclick="renamePreset()">Save name</button>
+      </td></tr>
+    </table>
+
+    <div class="editor-section" id="ed-pc">
+      <h4>PC slots — 16 channels</h4>
+      <div class="pc-grid" id="pc-grid"></div>
+      <div class="editor-actions">
+        <button class="primary save-btn" onclick="savePresetPC()">Save PC slots</button>
+        <span class="hint">Value is the displayed PC# (0-127 or 1-128 depending on starting-preset). OFF = slot inactive.</span>
+      </div>
+    </div>
+
+    <div class="editor-section" id="ed-ia">
+      <h4>Instant-access switches — on/off (CTR STORE)</h4>
+      <div class="ia-row" id="ia-row"></div>
+      <div class="editor-actions">
+        <button class="primary save-btn" onclick="savePresetIA()">Save IA bitmap</button>
+        <span class="hint">All 15 switches are editable. Storage: 3 bytes at 0xC8/0xCA/0xCC, REVERSED bit order. Click pill to toggle.</span>
+      </div>
+    </div>
+
+    <div class="editor-section" id="ed-cmd">
+      <h4>Custom MIDI string — up to 5 commands per preset</h4>
+      <div id="cmd-list"></div>
+      <div class="editor-actions">
+        <button class="primary save-btn" onclick="savePresetCMD()">Save custom MIDI</button>
+        <span class="hint">CMD5 not yet wired (its byte location overlaps SysEx). Type encodings still being decoded — unknown values shown as ??(0xNN).</span>
+      </div>
+    </div>
+
+    <div class="editor-section" id="ed-sysex">
+      <h4>SysEx string — 30 bytes + per-preset ON/OFF (SYSX P2/P3)</h4>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <label class="act" style="font-size:11px;color:var(--accent);"><input type="checkbox" id="p-sysex-on"> Send sysex on preset recall (SYSX P2)</label>
+      </div>
+      <div class="sysex-grid" id="sysex-grid"></div>
+      <div class="editor-actions">
+        <button class="primary save-btn" onclick="savePresetSYSX()">Save SysEx</button>
+        <span class="hint">Each byte 0-127. Toggle byte at 0xF6, payload at 0xF8.</span>
+      </div>
+    </div>`;
+  renderPresetPC(p);
+  renderPresetIA(p);
+  renderPresetCMD(p);
+  renderPresetSYSX(p);
+  $('preset-hex').textContent = p.raw_hex.match(/.{1,2}/g).join(' ');
+}
+
+// ── per-preset editor renderers ───────────────────────────────────────────
+function chName(ch) {
+  const n = (state.channel_names && state.channel_names[ch-1]) || '';
+  return n || `CH${ch}`;
+}
+
+function renderPresetPC(p) {
+  const g = $('pc-grid'); g.innerHTML = '';
+  (p.pc_slots || []).forEach(s => {
+    const cell = document.createElement('div');
+    cell.className = 'pc-cell' + (s.active ? '' : ' off');
+    cell.innerHTML = `
+      <div class="lbl"><span>CH${s.ch}</span><span class="ch-name">${escapeHtml(chName(s.ch))}</span></div>
+      <input type="number" min="0" max="127" value="${s.value}" data-pc-ch="${s.ch}" data-pc-field="value">
+      <label class="act"><input type="checkbox" ${s.active ? 'checked' : ''} data-pc-ch="${s.ch}" data-pc-field="active">active</label>`;
+    g.appendChild(cell);
+    cell.querySelector('input[type="checkbox"]').addEventListener('change', e => {
+      cell.classList.toggle('off', !e.target.checked);
+    });
+  });
+}
+
+function renderPresetIA(p) {
+  const r = $('ia-row'); r.innerHTML = '';
+  (p.ia_bits || []).forEach((b, i) => {
+    const num = i + 1;
+    const sw = (state.switch_names && state.switch_names.switches && state.switch_names.switches[i]) || '';
+    const pill = document.createElement('div');
+    pill.className = 'ia-pill' + (b ? ' on' : '');
+    pill.innerHTML = `<div class="num">SW${num}</div><div>${escapeHtml(sw || '—')}</div>`;
+    pill.dataset.swNum = num;
+    pill.dataset.on = b ? '1' : '0';
+    pill.onclick = () => {
+      const cur = pill.dataset.on === '1';
+      pill.dataset.on = cur ? '0' : '1';
+      pill.classList.toggle('on', !cur);
+    };
+    r.appendChild(pill);
+  });
+}
+
+const CMD_TYPE_OPTIONS = ['NONE','NOFF>','N ON>','KPRS>','C CH>','P CH>','CPRS>','PBEN>',
+  'T CLK','START','CONTU','STOP','ACTSN','SYSRS','MTC>','SGPP>','SGSL>','T REQ'];
+
+function renderPresetCMD(p) {
+  const list = $('cmd-list'); list.innerHTML = '';
+  (p.cmd_slots || []).forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'cmd-row';
+    // CMD1 type byte overlaps IA bitmap; CMD4 data2 overlaps the SysEx ON/OFF
+    // toggle and CMD4 runs into the SysEx string. The server-side write guard
+    // (app.py rebuild_preset_frame) only writes CMD2/CMD3; greying out
+    // CMD1/CMD4 here matches that, so the user doesn't see an edit "save" with
+    // no effect on hardware. Re-enable once those offsets are pinned.
+    const writable = (c.idx === 2 || c.idx === 3);
+    const opts = CMD_TYPE_OPTIONS.map(o =>
+      `<option ${o === c.type_label ? 'selected' : ''}>${o}</option>`).join('');
+    const isUnknown = c.type_label.startsWith('??');
+    const dis = writable ? '' : 'disabled';
+    const hint = writable
+      ? `type 0x${c.type_byte.toString(16).padStart(2,'0').toUpperCase()}`
+      : `read-only — CMD${c.idx} offset overlaps another field (RE pending)`;
+    row.innerHTML = `
+      <div class="cmd-num">CMD${c.idx}</div>
+      <select ${dis} data-cmd-idx="${c.idx}" data-cmd-field="type_label">
+        ${opts}
+        ${isUnknown ? `<option selected>${c.type_label}</option>` : ''}
+      </select>
+      <input ${dis} type="number" min="0" max="127" value="${c.channel}" data-cmd-idx="${c.idx}" data-cmd-field="channel" title="Channel byte">
+      <input ${dis} type="number" min="0" max="127" value="${c.data1}" data-cmd-idx="${c.idx}" data-cmd-field="data1" title="Data 1 (note / cc# / prog)">
+      <input ${dis} type="number" min="0" max="127" value="${c.data2}" data-cmd-idx="${c.idx}" data-cmd-field="data2" title="Data 2 (velocity / value)">
+      <span class="hint" style="font-size:9px;${writable?'':'color:#888;'}">${hint}</span>`;
+    if (!writable) row.style.opacity = '0.55';
+    list.appendChild(row);
+  });
+  if (p.cmd_slots && p.cmd_slots.length < 5) {
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.textContent = `CMD5 hidden — its byte position would overlap the SysEx region. Awaiting one more targeted dump to resolve.`;
+    list.appendChild(note);
+  }
+}
+
+function renderPresetSYSX(p) {
+  const g = $('sysex-grid'); g.innerHTML = '';
+  (p.sysex_bytes || []).forEach((b, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'sysex-cell';
+    cell.innerHTML = `<div class="idx">B${String(i+1).padStart(2,'0')}</div>
+      <input type="number" min="0" max="127" value="${b}" data-sx-i="${i}">`;
+    g.appendChild(cell);
+  });
+  if ($('p-sysex-on')) $('p-sysex-on').checked = !!p.sysex_on;
+}
+
+// ── per-preset edit savers ────────────────────────────────────────────────
+async function savePresetPC() {
+  const num = state.selectedPreset;
+  const slots = [];
+  document.querySelectorAll('#pc-grid .pc-cell').forEach(cell => {
+    const ch = parseInt(cell.querySelector('input[type="number"]').dataset.pcCh, 10);
+    const value = parseInt(cell.querySelector('input[type="number"]').value, 10) || 0;
+    const active = cell.querySelector('input[type="checkbox"]').checked;
+    slots.push({ch, value, active});
+  });
+  const r = await fetch(`/api/preset/${num}/pc`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({slots}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('PC save failed: ' + (r.error||''), true); return; }
+  state.presets[num-1] = r.preset;
+  toast(`PR${String(num).padStart(3,'0')} PC slots saved`);
+  selectPreset(num);
+}
+
+async function savePresetIA() {
+  const num = state.selectedPreset;
+  const bits = [];
+  for (let i = 1; i <= 15; i++) {
+    const pill = document.querySelector(`#ia-row .ia-pill[data-sw-num="${i}"]`);
+    bits.push(pill ? pill.dataset.on === '1' : false);
+  }
+  const r = await fetch(`/api/preset/${num}/ia`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bits}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('IA save failed: ' + (r.error||''), true); return; }
+  state.presets[num-1] = r.preset;
+  toast(`PR${String(num).padStart(3,'0')} IA bitmap saved`);
+  selectPreset(num);
+}
+
+async function savePresetCMD() {
+  const num = state.selectedPreset;
+  const cmds = [];
+  document.querySelectorAll('#cmd-list .cmd-row').forEach(row => {
+    const idx = parseInt(row.querySelector('select').dataset.cmdIdx, 10);
+    const fields = {idx};
+    row.querySelectorAll('[data-cmd-field]').forEach(el => {
+      const f = el.dataset.cmdField;
+      fields[f] = (el.tagName === 'SELECT') ? el.value : (parseInt(el.value, 10) || 0);
+    });
+    cmds.push(fields);
+  });
+  const r = await fetch(`/api/preset/${num}/cmd`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cmds}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('CMD save failed: ' + (r.error||''), true); return; }
+  state.presets[num-1] = r.preset;
+  toast(`PR${String(num).padStart(3,'0')} custom MIDI saved`);
+  selectPreset(num);
+}
+
+async function savePresetSYSX() {
+  const num = state.selectedPreset;
+  const bytes = [];
+  document.querySelectorAll('#sysex-grid input').forEach(inp => {
+    bytes.push(parseInt(inp.value, 10) || 0);
+  });
+  const on = $('p-sysex-on') ? $('p-sysex-on').checked : false;
+  const r = await fetch(`/api/preset/${num}/sysex`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({bytes, on}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('SysEx save failed: ' + (r.error||''), true); return; }
+  state.presets[num-1] = r.preset;
+  toast(`PR${String(num).padStart(3,'0')} SysEx saved (${on ? 'ON' : 'OFF'})`);
+  selectPreset(num);
+}
+
+async function renamePreset() {
+  const num = state.selectedPreset;
+  const name = $('p-name').value.toUpperCase();
+  const r = await fetch(`/api/preset/${num}/rename`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Rename failed: ' + (r.error||''), true); return; }
+  state.presets[num-1] = r.preset;
+  renderPresetList();
+  selectPreset(num);
+  toast(`PR${String(num).padStart(3,'0')} renamed`);
+}
+
+// ── channel / switch names ────────────────────────────────────────────────
+function renderChannelNames() {
+  const cg = $('channel-names-grid'); cg.innerHTML = '';
+  state.channel_names.forEach((n, i) => {
+    cg.innerHTML += `<div class="chan-card">
+      <div class="n">CH${i+1}</div>
+      <input type="text" maxlength="4" value="${escapeHtml(n||'')}" data-ch="${i}">
+    </div>`;
+  });
+  const sg = $('switch-names-grid'); sg.innerHTML = '';
+  (state.switch_names.switches||[]).forEach((n, i) => {
+    sg.innerHTML += `<div class="sw-card">
+      <div class="n">SW${i+1}</div>
+      <input type="text" maxlength="4" value="${escapeHtml(n||'')}" data-sw="${i}">
+    </div>`;
+  });
+  const pg = $('pedal-names-grid'); pg.innerHTML = '';
+  (state.switch_names.pedals||[]).forEach((n, i) => {
+    pg.innerHTML += `<div class="sw-card">
+      <div class="n">PED${i+1}</div>
+      <input type="text" maxlength="4" value="${escapeHtml(n||'')}" data-pd="${i}">
+    </div>`;
+  });
+  renderIaRouting();
+  renderFCSwitches();
+}
+
+function renderIaRouting() {
+  const g = $('ia-routing-grid'); if (!g) return;
+  g.innerHTML = '';
+  const map = iaMap();
+  const sw  = state.switch_names.switches || [];
+  for (let n = 6; n <= 15; n++) {
+    const cfg = map[n] || {ch:1, cc:20+n};
+    const label = sw[n-1] || ('SW' + n);
+    g.innerHTML += `<div class="sw-card">
+      <div class="n">SW${n} — ${escapeHtml(label)}</div>
+      <label style="font-size:10px;color:var(--mute)">CH</label>
+      <input type="number" min="1" max="16" value="${cfg.ch}" data-ia-ch="${n}" style="width:50px">
+      <label style="font-size:10px;color:var(--mute)">CC#</label>
+      <input type="number" min="0" max="120" value="${cfg.cc}" data-ia-cc="${n}" style="width:60px">
+    </div>`;
+  }
+  g.querySelectorAll('input').forEach(inp => {
+    inp.onchange = () => {
+      const n = +(inp.dataset.iaCh || inp.dataset.iaCc);
+      const m = iaMap();
+      const cur = m[n] || {ch:1, cc:20+n};
+      if (inp.dataset.iaCh) cur.ch = Math.max(1, Math.min(16, +inp.value));
+      else                  cur.cc = Math.max(0, Math.min(120, +inp.value));
+      m[n] = cur;
+      saveIaMap(m);
+      toast(`SW${n}: CH${cur.ch} CC#${cur.cc}`);
+    };
+  });
+}
+
+// ── virtual foot controller ───────────────────────────────────────────────
+// Device layout, row-major (top → bottom, left → right).
+// Each cell is either a control button {kind, label} or a numbered switch
+// {kind:'sw', n: 1-15}.
+const FC_LAYOUT = [
+  {kind:'2nd',  label:'2ND'},  {kind:'sw',n:11}, {kind:'sw',n:12}, {kind:'sw',n:13}, {kind:'sw',n:14}, {kind:'sw',n:15},
+  {kind:'up',   label:'UP'},   {kind:'sw',n: 6}, {kind:'sw',n: 7}, {kind:'sw',n: 8}, {kind:'sw',n: 9}, {kind:'sw',n:10},
+  {kind:'down', label:'DOWN'}, {kind:'sw',n: 1}, {kind:'sw',n: 2}, {kind:'sw',n: 3}, {kind:'sw',n: 4}, {kind:'sw',n: 5},
+];
+
+function bankSize()    { return +($('g-bank-size')?.value || 5); }
+function totalPresets(){ return state.presets.length || 120; }
+function numBanks()    { return Math.max(1, Math.ceil(totalPresets() / bankSize())); }
+function presetNumForSwitch(n) { return state.bank * bankSize() + n; }   // 1-indexed
+
+// ── Per-IA-switch routing (channel + CC#) ─────────────────────────────────
+// Defaults seeded from the MUSE rig CONTROL NUMBERS sheet. Editable from
+// the Channels & Switches tab; persisted to localStorage.
+const DEFAULT_IA_MAP = {
+   6: {ch:2, cc:13},   //  6 VOX1  → HEAD CC#13
+   7: {ch:2, cc:12},   //  7 DIEZ  → HEAD CC#12
+   8: {ch:2, cc:11},   //  8 MARS  → HEAD CC#11
+   9: {ch:1, cc:11},   //  9 FUN   → LOOP CC#11
+  10: {ch:1, cc:13},   // 10 SW10  → LOOP CC#13
+  11: {ch:1, cc:17},   // 11 PHSD  → LOOP CC#17
+  12: {ch:2, cc:14},   // 12 COMP  → HEAD CC#14
+  13: {ch:1, cc:14},   // 13 FUZZ  → LOOP CC#14
+  14: {ch:1, cc:15},   // 14 TOPB  → LOOP CC#15
+  15: {ch:1, cc:18},   // 15 DLAY  → LOOP CC#18
+};
+function iaMap() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('rocktron-ia-map') || '{}');
+    return Object.assign({}, DEFAULT_IA_MAP, saved);
+  } catch { return DEFAULT_IA_MAP; }
+}
+function saveIaMap(m) { localStorage.setItem('rocktron-ia-map', JSON.stringify(m)); }
+
+// Friendly channel label for the activity log: the dump's own 4-char
+// channel name when a dump is loaded, otherwise plain CHn.
+function chLabel(ch) {
+  const n = (state.channel_names && state.channel_names[ch - 1]) || '';
+  return n ? `${n} (CH${ch})` : `CH${ch}`;
+}
+
+// ── MIDI activity log ────────────────────────────────────────────────────
+// Textual mirror of every PC/CC the editor sends and that lands back from
+// the device. Newest entry on top, capped at 80 rows.
+const MA_MAX = 80;
+function maLog(dir, ch, evt, dev, val) {
+  const list = document.getElementById('midi-activity-list');
+  if (!list) return;
+  // Drop the placeholder "click a foot switch…" message on first event.
+  const empty = list.querySelector('.ma-empty');
+  if (empty) empty.remove();
+  const d = new Date();
+  const ts = `${String(d.getHours()).padStart(2,'0')}:` +
+             `${String(d.getMinutes()).padStart(2,'0')}:` +
+             `${String(d.getSeconds()).padStart(2,'0')}.` +
+             `${String(d.getMilliseconds()).padStart(3,'0')}`;
+  const row = document.createElement('div');
+  row.className = 'ma-row ma-' + dir;
+  row.innerHTML =
+    `<span class="ma-time">${ts}</span>` +
+    `<span class="ma-${dir}">${dir.toUpperCase()}</span>` +
+    `<span>CH${ch}</span>` +
+    `<span class="ma-evt">${escapeHtml(evt)} <span class="ma-dev">${escapeHtml(dev || '')}</span></span>` +
+    `<span class="ma-val">${val == null ? '' : val}</span>`;
+  list.insertBefore(row, list.firstChild);
+  while (list.children.length > MA_MAX) list.removeChild(list.lastChild);
+}
+
+// ── LED helper for the All Access SVG ─────────────────────────────────────
+// Each LED is a <circle data-led="N"> over its switch. Setting the
+// gradient swaps it between the "off" red ember and the "on" amber glow.
+function setLed(n, on) {
+  const led = document.querySelector(`#aa-svg [data-led="${n}"]`);
+  if (!led) return;
+  led.setAttribute('fill', on ? 'url(#ledOn)' : 'url(#ledOff)');
+  if (on) led.setAttribute('filter', 'url(#ledGlow)');
+  else    led.removeAttribute('filter');
+}
+function clearAllLeds() {
+  document.querySelectorAll('#aa-svg [data-led]').forEach(l => {
+    l.setAttribute('fill', 'url(#ledOff)');
+    l.removeAttribute('filter');
+  });
+}
+
+// ── 14-segment LCD renderer (cyan glow, ghost-segments behind) ────────────
+// Standard fourteen-segment alphanumeric layout: a/b/c/d/e/f around the
+// outside, g1/g2 split middle bar, h/i/j the three upper inner segments
+// (top-left diagonal, top vertical, top-right diagonal), m/l/k the three
+// lower inner segments (bottom-left diagonal, bottom vertical, bottom-
+// right diagonal). All segments built as thin parallelograms via the
+// thickLine() helper so the renderer stays declarative.
+function thickLine(x1, y1, x2, y2, w) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len * w / 2;
+  const ny =  dx / len * w / 2;
+  return `M ${(x1+nx).toFixed(3)},${(y1+ny).toFixed(3)}`
+       + ` L ${(x1-nx).toFixed(3)},${(y1-ny).toFixed(3)}`
+       + ` L ${(x2-nx).toFixed(3)},${(y2-ny).toFixed(3)}`
+       + ` L ${(x2+nx).toFixed(3)},${(y2+ny).toFixed(3)} Z`;
+}
+const W = 0.10;  // segment thickness in unit-cell coordinates
+const SEG_PATHS = {
+  a:  thickLine(0.20, 0.06, 0.80, 0.06, W),
+  b:  thickLine(0.86, 0.10, 0.86, 0.46, W),
+  c:  thickLine(0.86, 0.54, 0.86, 0.90, W),
+  d:  thickLine(0.20, 0.94, 0.80, 0.94, W),
+  e:  thickLine(0.14, 0.54, 0.14, 0.90, W),
+  f:  thickLine(0.14, 0.10, 0.14, 0.46, W),
+  g1: thickLine(0.20, 0.50, 0.46, 0.50, W),
+  g2: thickLine(0.54, 0.50, 0.80, 0.50, W),
+  h:  thickLine(0.20, 0.14, 0.46, 0.46, W),  // ＼ upper-left
+  i:  thickLine(0.50, 0.10, 0.50, 0.46, W),  // | top vertical
+  j:  thickLine(0.80, 0.14, 0.54, 0.46, W),  // ／ upper-right
+  k:  thickLine(0.54, 0.54, 0.80, 0.86, W),  // ＼ lower-right
+  l:  thickLine(0.50, 0.54, 0.50, 0.90, W),  // | bottom vertical
+  m:  thickLine(0.46, 0.54, 0.20, 0.86, W),  // ／ lower-left
+};
+// 14-segment glyph mapping. Multi-letter segment names like "g1" appear
+// as a single token, so segs is split by spaces, not chars.
+const CHAR_SEGS = {
+  '0':'a b c d e f j m', '1':'b c',           '2':'a b g1 g2 e d',  '3':'a b g2 c d',
+  '4':'f g1 g2 b c',     '5':'a f g1 g2 c d', '6':'a f g1 g2 c d e','7':'a b c',
+  '8':'a b c d e f g1 g2', '9':'a b c d f g1 g2',
+  'A':'a b c e f g1 g2',
+  'B':'a b c d g2 i l',         // verticals through middle for the two bumps
+  'C':'a d e f',
+  'D':'a b c d i l',            // verticals for D's straight back
+  'E':'a d e f g1 g2',
+  'F':'a e f g1 g2',
+  'G':'a c d e f g2',
+  'H':'b c e f g1 g2',
+  'I':'a d i l',
+  'J':'b c d',
+  'K':'e f g1 j k',
+  'L':'d e f',
+  'M':'b c e f h j',            // verticals + top diagonals to centre
+  'N':'b c e f h k',             // verticals + one full diagonal
+  'O':'a b c d e f',
+  'P':'a b e f g1 g2',
+  'Q':'a b c d e f k',
+  'R':'a b e f g1 g2 k',
+  'S':'a c d f g1 g2',
+  'T':'a i l',
+  'U':'b c d e f',
+  'V':'e f k m',                 // left vertical + V-bottom diagonals
+  'W':'b c e f k m',             // both verticals + V-bottom (W-ish)
+  'X':'h j k m',                 // pure X
+  'Y':'h j l',                   // diagonals into stem
+  'Z':'a d j m',                 // top + diagonal-down + bottom
+  '-':'g1 g2',
+  '_':'d',
+  '/':'j m',                     // forward slash (used in DLY/PH etc.)
+  '\\':'h k',
+  '.':'', ' ':'',
+};
+function fcLcd(text) {
+  const root = document.getElementById('lcd-segments');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  // Layout: panel (74,76) + (382,56). Leave 14px padding.
+  const panelX = 74, panelY = 76, panelW = 382, panelH = 56;
+  const charW = 14, charH = 28, gap = 4;
+  const startX = panelX + 16;
+  const startY = panelY + (panelH - charH) / 2;
+  const upper = (text || '').toUpperCase().slice(0, 20);
+  for (let i = 0; i < upper.length; i++) {
+    const ch = upper[i];
+    const cx = startX + i * (charW + gap);
+    // ghost (off) segments very faint
+    const ghost = document.createElementNS(SVGNS, 'g');
+    ghost.setAttribute('transform', `translate(${cx},${startY}) scale(${charW},${charH})`);
+    ghost.setAttribute('fill', '#0c2a3a');
+    ghost.setAttribute('opacity', '0.16');
+    Object.values(SEG_PATHS).forEach(d => {
+      const p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('d', d);
+      ghost.appendChild(p);
+    });
+    root.appendChild(ghost);
+    const segsTokens = (CHAR_SEGS[ch] || '').split(/\s+/).filter(Boolean);
+    if (!segsTokens.length) continue;
+    const g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('transform', `translate(${cx},${startY}) scale(${charW},${charH})`);
+    g.setAttribute('fill', '#3ad6ff');
+    segsTokens.forEach(s => {
+      if (!SEG_PATHS[s]) return;
+      const p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('d', SEG_PATHS[s]);
+      g.appendChild(p);
+    });
+    root.appendChild(g);
+  }
+}
+
+// ── Foot-controller render: just refresh the LCD; SVG buttons are static ──
+function renderFCSwitches() {
+  updateLcd();
+  // Update SW6..SW15 labels with the dump's IA names (VOX1, DIEZ, …).
+  // SW1..SW5 stay numeric — they're preset switches in the current bank.
+  const sw = state.switch_names && state.switch_names.switches || [];
+  for (let n = 6; n <= 15; n++) {
+    const el = document.getElementById('aa-label-' + n);
+    if (!el) continue;
+    const name = sw[n - 1];
+    el.textContent = (name && name.trim() && !/^SW\d+$/.test(name))
+      ? name : String(n);
+  }
+}
+
+function fcSwitchSvg(n) {
+  const bs = bankSize();
+  console.log('[AA] click sw=', n, 'bs=', bs, 'bank=', state.bank);
+  if (n <= bs) {
+    // Preset switch — exclusive: clear all preset-switch LEDs, light this one
+    for (let i = 1; i <= bs; i++) setLed(i, false);
+    setLed(n, true);
+    const pn = presetNumForSwitch(n);
+    state.activePreset = pn;
+    const p = state.presets[pn - 1];
+    const name = p ? p.name : '';
+    fcLcd(`PR${String(pn).padStart(3,'0')} ${name}`);
+    // Update IA switch LEDs from this preset's stored ia_bits.
+    // IA range = SW(bs+1) .. SW15 in the current bank size. SW6-15 always have
+    // a bit slot (SW1-5 are also stored but become preset switches at lower
+    // bank sizes). We only paint LEDs for SWs that are currently IA.
+    if (p && p.ia_bits) {
+      for (let i = bs + 1; i <= 15; i++) {
+        setLed(i, !!p.ia_bits[i - 1]);
+      }
+    }
+    fetch('/api/vfc/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel:1, type:'pc', num: (pn - 1) & 0x7F}),
+    });
+    maLog('tx', 1, `PC ${pn-1}`, `Recall PR${String(pn).padStart(3,'0')} ${name}`, pn-1);
+  } else {
+    // Instant-access — toggle. We track on/off via the LED's current fill.
+    const led = document.querySelector(`#aa-svg [data-led="${n}"]`);
+    const wasOn = led && led.getAttribute('fill') === 'url(#ledOn)';
+    setLed(n, !wasOn);
+    const map = iaMap()[n] || {ch:1, cc:20+n};
+    const val = (!wasOn) ? 127 : 0;
+    fetch('/api/vfc/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel:map.ch, type:'cc', num:map.cc, val}),
+    });
+    const swNames = (state.switch_names && state.switch_names.switches) || [];
+    const swLabel = swNames[n-1] || `SW${n}`;
+    maLog('tx', map.ch, `CC#${map.cc}`,
+          `${swLabel} ${val ? 'ON' : 'OFF'} (${chLabel(map.ch)})`,
+          val);
+  }
+}
+
+function fcCtrlSvg(kind) {
+  console.log('[AA] click ctrl=', kind);
+  if (kind === '2nd') {
+    state.second = !state.second;
+    maLog('tx', 0, '2ND', `Secondary functions ${state.second ? 'ON' : 'OFF'}`, null);
+    return;
+  }
+  const nb = numBanks(), delta = kind === 'up' ? +1 : -1;
+  state.bank = ((state.bank + delta) % nb + nb) % nb;
+  state.activePreset = null;
+  // New bank — clear all preset LEDs and refresh the LCD bank readout
+  const bs = bankSize();
+  for (let i = 1; i <= bs; i++) setLed(i, false);
+  updateLcd();
+  maLog('tx', 0, kind === 'up' ? 'BANK +' : 'BANK -',
+        `Bank ${state.bank+1}/${nb} (PR${String(state.bank*bs+1).padStart(3,'0')}-${String(Math.min(state.bank*bs+bs, totalPresets())).padStart(3,'0')})`,
+        null);
+}
+
+// Sole click entry-point for foot-controller buttons.
+// IMPORTANT: in some Chromium configurations, clicks on transformed SVG
+// <g> children (with our brushed-blue chassis + drop-shadow filter on
+// top of them) deliver e.target = the outer <svg> element rather than
+// the dome circle that's actually under the cursor. Using e.target then
+// fails to find the .aa-btn group. We therefore re-derive the topmost
+// element via elementsFromPoint(clientX, clientY), which gives the true
+// stack of elements regardless of how the click was routed.
+document.addEventListener('click', e => {
+  const stack = (document.elementsFromPoint
+    ? document.elementsFromPoint(e.clientX, e.clientY)
+    : [e.target]);
+  for (const candidate of stack) {
+    let el = candidate;
+    while (el && el !== document.body) {
+      if (el.dataset && (el.dataset.swNum || el.dataset.ctrlKind)) {
+        if (el.dataset.swNum) {
+          fcSwitchSvg(+el.dataset.swNum);
+        } else {
+          fcCtrlSvg(el.dataset.ctrlKind);
+        }
+        return;
+      }
+      el = el.parentNode;
+    }
+  }
+});
+
+function fcSwitch(n, btn) {
+  const bs = bankSize();
+  if (n <= bs) {
+    // Preset select — exclusive among preset switches
+    document.querySelectorAll('.fc-btn[data-sw-num]').forEach(b => {
+      if (+b.dataset.swNum <= bs) b.classList.remove('on');
+    });
+    btn.classList.add('on');
+    const pn = presetNumForSwitch(n);
+    const p  = state.presets[pn - 1];
+    state.activePreset = pn;
+    fcLcd(`PR${String(pn).padStart(3,'0')}  ${p ? p.name : ''}`);
+    fetch('/api/vfc/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel:1, type:'pc', num: (pn - 1) & 0x7F}),
+    });
+  } else {
+    // Instant-access — toggle CC on the switch's configured channel + CC#
+    btn.classList.toggle('on');
+    const on  = btn.classList.contains('on');
+    const map = iaMap()[n] || {ch:1, cc:20+n};
+    fetch('/api/vfc/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel:map.ch, type:'cc', num:map.cc, val: on?127:0}),
+    });
+  }
+}
+
+function fcCtrl(kind, btn) {
+  if (kind === '2nd') {
+    state.second = !state.second;
+    btn.classList.toggle('on', state.second);
+    return;
+  }
+  // UP/DOWN — cycle through banks with wrap
+  const nb = numBanks();
+  const delta = kind === 'up' ? +1 : -1;
+  state.bank = ((state.bank + delta) % nb + nb) % nb;
+  state.activePreset = null;
+  btn.classList.add('on');
+  setTimeout(()=>btn.classList.remove('on'), 150);
+  renderFCSwitches();
+}
+
+function updateLcd() {
+  const bs = bankSize(), nb = numBanks();
+  const first = state.bank * bs + 1;
+  const last  = Math.min(state.bank * bs + bs, totalPresets());
+  if (state.activePreset) {
+    const p = state.presets[state.activePreset - 1];
+    fcLcd(`PR${String(state.activePreset).padStart(3,'0')}  ${p ? p.name : ''}`);
+  } else {
+    fcLcd(`BNK ${String(state.bank+1).padStart(2,'0')}/${nb}  PR${String(first).padStart(3,'0')}-${String(last).padStart(3,'0')}`);
+  }
+}
+
+// Process every incoming MIDI byte stream from the device.
+function handleIncomingMidi(hex) {
+  const bytes = (hex.match(/.{1,2}/g) || []).map(h => parseInt(h, 16));
+  if (bytes.length < 2 || bytes[0] === 0xF0) return;
+  const status = bytes[0] & 0xF0;
+  const ch     = (bytes[0] & 0x0F) + 1;
+  if (status === 0xC0)        onIncomingPC(ch, bytes[1]);
+  else if (status === 0xB0)   onIncomingCC(ch, bytes[1], bytes[2] || 0);
+}
+
+function onIncomingPC(ch, pc) {
+  maLog('rx', ch, `PC ${pc}`, chLabel(ch), pc);
+
+  // NOTE: incoming PC on ch1 is NOT a preset-recall signal — it's the
+  // device's outgoing program change for the MR9 loop controller (which
+  // happens to live on ch1). On the All Access, the only way to detect a
+  // preset change passively is by reading its bulk-dump state; the wire-
+  // level traffic on ch1 reflects per-preset MR9 program numbers (e.g.
+  // PR1 / MAN OF 1 sends PC 99 to the MR9). So we don't update the LCD
+  // or the foot-controller's active-preset highlight from incoming PC.
+  // The LCD is driven exclusively by the user's virtual-switch clicks.
+}
+
+function onIncomingCC(ch, cc, val) {
+  // Resolve a friendly label: prefer the matching IA-routing entry,
+  // fall back to the channel device name.
+  let label = chLabel(ch);
+  const map = iaMap();
+  for (const k in map) {
+    const cfg = map[k];
+    if (cfg.ch === ch && cfg.cc === cc) {
+      const swNames = (state.switch_names && state.switch_names.switches) || [];
+      const swLabel = swNames[+k - 1] || `SW${k}`;
+      label = `${swLabel} ${val >= 64 ? 'ON' : 'OFF'} · ${label}`;
+      break;
+    }
+  }
+  maLog('rx', ch, `CC#${cc}`, label, val);
+
+  // Light up matching IA switch's LED in the foot controller (the
+  // friendly label resolver above already grabbed iaMap, so just reuse).
+  for (const k in map) {
+    const cfg = map[k];
+    if (cfg.ch === ch && cfg.cc === cc) {
+      setLed(+k, val >= 64);
+      break;
+    }
+  }
+}
+
+// (fcLcd lives above — drives the new 7-segment LCD via #lcd-segments.)
+
+function fcPedal(which, val) {
+  $('fc-ped'+which+'-val').textContent = val;
+  fetch('/api/vfc/send', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({channel:1, type:'cc', num: which===1 ? 11 : 12, val:+val}),
+  });
+}
+function quickSend() {
+  fetch('/api/vfc/send', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      channel: +$('q-ch').value, type: $('q-type').value,
+      num: +$('q-num').value, val: +$('q-val').value,
+    }),
+  });
+}
+
+// ── global config ─────────────────────────────────────────────────────────
+async function loadGlobal() {
+  const r = await fetch('/api/global-config').then(r=>r.json());
+  state.global_config = r;
+  $('g-bank-mode').value = r.bank_mode; $('g-bank-size').value = r.bank_size;
+  $('g-bank-style').value = r.bank_style; $('g-rx-ch').value = r.midi_rx_channel;
+  $('g-preset-start').value = r.preset_start;
+  // Re-render foot controller in case bank size just changed.
+  renderFCSwitches();
+}
+async function saveGlobal() {
+  const body = {
+    bank_mode: $('g-bank-mode').value,
+    bank_size: +$('g-bank-size').value,
+    bank_style: $('g-bank-style').value,
+    midi_rx_channel: +$('g-rx-ch').value,
+    preset_start: +$('g-preset-start').value,
+  };
+  await fetch('/api/global-config', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  });
+  toast('Global saved');
+}
+
+// ── monitor ───────────────────────────────────────────────────────────────
+function appendMonitor(ev) {
+  const el = $('monitor');
+  const d = new Date(ev.t*1000);
+  const tt = d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  const div = document.createElement('div');
+  div.className = 'ev kind-' + ev.kind.replace(/[^a-z]/g,'');
+  div.innerHTML = `<span>${tt}</span><span>${ev.kind}</span><span>${ev.len}B</span><span class="hex">${escapeHtml(ev.hex)}</span>`;
+  el.appendChild(div);
+  if (el.children.length > 500) el.removeChild(el.firstChild);
+  if ($('mon-scroll').checked) el.scrollTop = el.scrollHeight;
+}
+function clearMonitor() { $('monitor').innerHTML = ''; }
+
+// ── utilities ─────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return (s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// ── socket events ─────────────────────────────────────────────────────────
+socket.on('hello', d => {
+  if (d.ports) refreshMidiStatus(d.ports);
+  if (d.has_dump) fetch('/api/dump/status').then(r=>r.json()).then(r=>{
+    if (!r.has_dump) return;
+    state.presets = r.presets;
+    state.channel_names = r.channel_names;
+    state.switch_names = r.switch_names;
+    state.dumpComplete = r.complete !== false;
+    $('dump-status').textContent = `${r.presets.length} presets (${r.frame_count} frames)`;
+    enableDumpButtons();
+    renderPresetList(); renderChannelNames();
+    applyPartialDumpBanner();
+  });
+});
+socket.on('monitor', ev => {
+  appendMonitor(ev);
+  if (ev.kind === 'rx') handleIncomingMidi(ev.hex);
+});
+socket.on('dump-progress', p => {
+  const pct = Math.round(p.sent * 100 / p.total);
+  const elapsed = (p.elapsed_s != null) ? ` · ${p.elapsed_s}s` : '';
+  const eta = (!p.done && p.elapsed_s && p.sent > 0)
+    ? ` · ETA ${Math.round(p.elapsed_s * (p.total - p.sent) / p.sent)}s`
+    : '';
+  const status = p.done
+    ? `Write All complete — ${p.total} frames in ${p.elapsed_s}s ✓`
+    : `Writing ${p.sent}/${p.total} (${pct}%)${elapsed}${eta}`;
+  toast(status);
+  if ($('dump-status')) {
+    $('dump-status').textContent = p.done
+      ? `${state.presets.length} presets (${p.total} frames) — wrote ${p.elapsed_s}s ago`
+      : `writing… ${pct}%${eta}`;
+  }
+});
+socket.on('capture-progress', p => {
+  $('dump-status').textContent = `capturing… ${p.count} frames`;
+});
+socket.on('capture-done', d => {
+  toast(`Captured ${d.frame_count} frames, ${d.preset_count} presets`);
+  // Refresh state from server
+  fetch('/api/dump/status').then(r=>r.json()).then(r => {
+    if (!r.has_dump) return;
+    state.presets = r.presets;
+    state.channel_names = r.channel_names;
+    state.switch_names = r.switch_names;
+    state.dumpComplete = r.complete !== false;
+    $('dump-status').textContent = `${r.presets.length} presets (${r.frame_count} frames)`;
+    enableDumpButtons();
+    renderPresetList();
+    renderChannelNames();
+    applyPartialDumpBanner();
+    if (d.target && d.target.startsWith('preset:')) {
+      selectPreset(+d.target.split(':')[1]);
+    }
+  });
+});
+
+renderFCSwitches();   // render the device immediately, even before any dump
+loadGlobal();
+loadPacing();
+refreshPortDropdowns();   // populate the in/out selects + LEDs immediately
+// Re-render foot controller if user changes bank size on the Global tab
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'g-bank-size') renderFCSwitches();
+});
+</script>
+</body>
+</html>
