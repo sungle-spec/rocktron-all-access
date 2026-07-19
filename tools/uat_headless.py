@@ -160,6 +160,11 @@ def run(buf):
           f"changed offsets {[hex(c) for c in changed]}")
     redec = aa.parse_preset_frame(1, renamed)["name"]
     check("renamed value reads back", redec == "TEST RENAME", f"got {redec!r}")
+    # Space must be stored as the device-native `.` (0x2E), never 0x20 —
+    # 0x20 acceptance was never verified on hardware.
+    space_byte = renamed[aa.NAME_OFF + 4 * 2]   # 5th char of "TEST RENAME"
+    check("space encodes as device-native 0x2E", space_byte == 0x2E,
+          f"got {hex(space_byte)}")
 
     # UAT-1.2: PC slot edit, value + status correct, neighbours preserved
     print("\n[UAT-1.2  PC slot edit]")
@@ -186,18 +191,54 @@ def run(buf):
                               + bytes([b0]) + b"\x00" + bytes([b1]) + b"\x00"
                               + bytes([b2]) + bytes([0] * 400))[:15] == bits)
 
-    # UAT-1.5 / REGRESSION: CMD4 must NOT corrupt the SysEx ON/OFF byte (0xF6)
-    print("\n[REGRESSION  CMD4 vs SysEx ON/OFF collision]")
+    # UAT-1.5 / REGRESSION: CMD writes must never touch the SysEx toggle
+    # (0xF6), IA bitmap (0xC8/0xCA/0xCC) or SysEx string (0xF8+). CMD5 is the
+    # closest slot (0xEE..0xF5) — the historical corruption came from writing
+    # CMD data at wrong offsets under the superseded 12-byte layout.
+    print("\n[REGRESSION  CMD writes vs neighbouring fields]")
     off, n, orig = preset_frame_bytes(buf, 6)
     on = aa.rebuild_preset_frame(orig, sysex_on=True)
     check("sysex_on=True sets 0xF6 to 0x01", on[aa.SYSX_ON_OFF_BYTE] == 0x01)
     after_cmd = aa.rebuild_preset_frame(
-        on, cmd_slots=[{"idx": 4, "channel": 1, "data1": 60, "data2": 127}])
-    # In the CURRENT (buggy) code this fails -- 0xF6 gets clobbered to 0x7F.
-    # After the patch (CMD capped at 3, or data2 offset corrected) it must pass.
-    check("CMD4 save preserves SysEx ON/OFF flag",
+        on, cmd_slots=[{"idx": i, "type_label": "C CH>", "channel": 16,
+                        "data1": 127, "data2": 127} for i in (1, 4, 5)])
+    check("CMD1/4/5 save preserves SysEx ON/OFF flag",
           after_cmd[aa.SYSX_ON_OFF_BYTE] == 0x01,
-          f"0xF6 became {hex(after_cmd[aa.SYSX_ON_OFF_BYTE])} -- CMD4 data2 collides with sysex toggle")
+          f"0xF6 became {hex(after_cmd[aa.SYSX_ON_OFF_BYTE])}")
+    outside = [i for i in range(n) if on[i] != after_cmd[i]
+               and not (aa.CMD_REGION_OFF <= i
+                        < aa.CMD_REGION_OFF + aa.CMD_COUNT * aa.CMD_STRIDE)]
+    check("CMD writes stay inside 0xCE..0xF5", not outside,
+          f"unexpected {[hex(o) for o in outside]}")
+
+    # UAT-1.6: CMD slot round-trip under the confirmed 8-byte layout
+    print("\n[UAT-1.6  custom MIDI round-trip]")
+    rt = aa.rebuild_preset_frame(
+        orig, cmd_slots=[{"idx": 3, "type_label": "KPRS>", "channel": 7,
+                          "data1": 64, "data2": 99}])
+    c3 = aa.parse_preset_frame(6, rt)["cmd_slots"][2]
+    check("CMD3 round-trips (type/ch/d1/d2)",
+          (c3["type_label"], c3["channel"], c3["data1"], c3["data2"])
+          == ("KPRS>", 7, 64, 99), str(c3))
+    check("CMD3 type byte = manual list index (KPRS>=0x02)",
+          rt[aa.CMD_REGION_OFF + 2 * aa.CMD_STRIDE] == 0x02)
+    check("CMD3 channel stored 0-based (ch7 -> 0x06)",
+          rt[aa.CMD_REGION_OFF + 2 * aa.CMD_STRIDE + 2] == 0x06)
+
+    # UAT-1.7: corpus fixtures — only when the loaded dump is the RE baseline
+    # (identified by PR6's real command: C CH> ch9 cc94).
+    _, _, pr6 = preset_frame_bytes(buf, 6)
+    if pr6[aa.CMD_REGION_OFF] == 0x03 and pr6[aa.CMD_REGION_OFF + 4] == 94:
+        print("\n[UAT-1.7  corpus fixtures (baseline dump detected)]")
+        c1 = aa.parse_preset_frame(6, pr6)["cmd_slots"][0]
+        check("PR6 CMD1 == C CH> ch9 cc94",
+              (c1["type_label"], c1["channel"], c1["data1"]) == ("C CH>", 9, 94),
+              str(c1))
+        _, _, pr106 = preset_frame_bytes(buf, 106)
+        c5 = aa.parse_preset_frame(106, pr106)["cmd_slots"][4]
+        check("PR106 CMD5 == C CH> ch12 cc15 (slot 5 is real)",
+              (c5["type_label"], c5["channel"], c5["data1"]) == ("C CH>", 12, 15),
+              str(c5))
 
     # UAT-2.x: globals splice + reparse
     print("\n[UAT-2.x  globals]")
@@ -230,7 +271,10 @@ def run(buf):
     po, pn = frames[pm]
     mp = aa.encode_pc_map(buf[po:po + pn], [49, 59, 69] + [None] * 125)
     check("PC1 -> PR50 index (0x31)", mp[6] == 0x31)
-    check("PC4 (None) preserves original byte", mp[6 + 3 * 2] == buf[po + 6 + 3 * 2])
+    check("PC4 (None) clears to OFF (0x78)", mp[6 + 3 * 2] == 0x78,
+          f"got {hex(mp[6 + 3 * 2])}")
+    check("cleared slot decodes back as unmapped",
+          aa.decode_pc_map(mp)[3] is None)
 
     # Summary
     print("\n" + "=" * 70)

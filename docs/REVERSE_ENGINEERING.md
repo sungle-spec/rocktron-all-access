@@ -69,12 +69,16 @@ Updated 2026-04-26 from `rev_T1_presets.syx`, `rev_T2_globals.syx`, `rev_T3_song
 | `0x20`          | 1    | Title metadata / "title last byte marker" — flips when title is overwritten | ⚠️ resets to `0x00` after rename, not a visible char |
 | `0x21..0x23`    | 3    | Preset header bytes — IA bitmap candidate | ⚠️ partial |
 | `0x24..0x43`    | 32   | **16 × PC slots** — `(value, status)` pairs, CH1..CH16 | ✅ |
-| `0x70..0x77`    | 8    | **Per-preset PER-PR override** for one IA slot — `(?, type, channel, ?, CC#, ?, ON, ?, OFF)` pattern | ✅ partial |
-| `0xCA..0xD5`    | 12   | **Custom MIDI CMD1** — type byte (`0xCA`) overlaps IA bitmap low byte. **Write guard: read-only.** | ⚠️ collision |
-| `0xD6..0xED`    | 24   | **Custom MIDI CMD2, CMD3** — clean 12-byte stride. **Write guard: writable.** | ✅ |
-| `0xEE..0x121`   | 52   | **Custom MIDI CMD4, CMD5** — CMD4 `data2` lands at `0xF6` (= SysEx ON/OFF toggle); CMD5 runs into SysEx string at `0xF8`. **Write guard: read-only.** | ⚠️ collision |
+| `0x40..0xC7`    | 136  | **IA slot table (PER-PR overrides)** — 17 slots × 8 bytes; first slot doubles as channel + switch-id record (see below) | ✅ partial |
+| `0xC8..0xCD`    | 6    | **IA on/off bitmap** — 3 × (bitmap, 0x00) pairs, SW1-15 | ✅ |
+| `0xCE..0xF5`    | 40   | **Custom MIDI CMD1-5** — 5 slots × 8 bytes, `[type, chan, data1, data2]` pairs. No collisions; all 5 writable. | ✅ |
+| `0xF6`          | 1    | **SysEx ON/OFF toggle** | ✅ |
 | `0xF8..0x133`   | 60   | **SysEx string** — 30 × `(byte, 0x00)` pairs | ✅ |
 | `0x134..0x136`  | 3    | Tail / unknown (final `F7` is at 0x137 = 309) | ❓ |
+
+The only bytes in the whole 309-byte frame still unexplained are `0x20..0x23`
+(title metadata) and the 3-byte tail — confirmed by an exhaustive census of
+all 120 baseline presets (`tools/analyze_captures.py`, Hunt 6).
 
 ### Preset name (offsets 0x06..0x1E)
 
@@ -167,32 +171,70 @@ When a user configures the slot (via SETUP P4 = `PER PR` and MIDI P2/P3), the sl
 
 **Note on slot indexing:** the 17 slots map to 15 IA switches + 2 pedals, but the exact mapping order (which chan-id = SW1 vs PED1) needs one more focused dump to confirm. Likely chan-id 1 = SW1 and chan-id 16/17 = PED1/PED2, given the descending storage matches the SETUP P5 name-block reversal.
 
-**Channel field:** the IA slot's "channel to send CC on" isn't yet pinned to a specific byte. Test T2 set SW11 to channel=CH3 but no byte in the slot showed the value `0x03`. Channel may be encoded elsewhere (per-preset table) or piggybacked into the flag byte. Needs follow-up.
-
-### Custom MIDI block (offsets 0xCA..~0x121, ~12 B per CMD slot)
-
-PR1 CMD1 set to `N ON> ch1 note 60 vel 100` flipped these bytes:
+**Channel field — located (offline re-analysis, 2026-07-19).** The full-frame
+diff of T2 (SW11 configured to CH3 / CC42 / ON 100 / OFF 20) shows exactly
+two extra bytes changing alongside the `0x70` slot:
 
 ```
-0xCA = type byte    (was 0x10, became 0x1F)   → 0x1F encodes "N ON>"
-0xCC = type echo?   (was 0x00, became 0x1F)   → mirror of 0xCA
-0xCE = channel      (was 0x11, became 0x01)   → 0x01 = CH1
-0xD0 = ?            (no change)
-0xD2 = data1        (was 0x00, became 0x3C = 60)   → note number
-0xD4 = data2        (was 0x00, became 0x64 = 100)  → velocity
+0x40: 0x00 → 0x03   ← the channel (CH3)
+0x42: 0x11 → 0x0B   ← the switch id (11 = SW11)
 ```
 
-PR5 had CMD2 channel byte at `0xDE` flip from `0x11` to `0x01` (user's accidental edit during T1.C diagnostic), confirming **CMD slot stride = 16 bytes** (`0xDE - 0xCE = 0x10`):
+i.e. the **first table entry (base `0x40`) doubles as a channel + switch-id
+record**. What's not yet disambiguated with a single observation: whether
+`0x40/0x42` is a per-slot header rewritten per configured switch, or a
+"most-recently-configured" record with per-slot channels elsewhere. One T7
+capture (configure PER-PR on *two* switches with different channels, dump,
+diff) settles it. Note T2 also nominally configured PED1 (ch4/cc11/127/0)
+but no PED1 slot bytes changed — that edit likely never persisted
+(CTR STORE not pressed), same failure mode as T3's lost SET1 edit.
+
+### Custom MIDI block ✅ (offsets 0xCE..0xF5 — 5 slots × 8 bytes)
+
+**Resolved offline** (2026-07-19) by re-mining the existing captures with
+`tools/analyze_captures.py`. The block is **five 8-byte slots** based at
+`0xCE` — `0xCE, 0xD6, 0xDE, 0xE6, 0xEE` — each laid out as four
+`(value, 0x00)` pairs:
+
+| Offset within slot | Field | Notes |
+|---|---|---|
+| +0 | **Type byte** | index into the manual's CUSTOM P1 list (see enum below); unset slot = `NONE` = `0x11` |
+| +2 | **Channel** | **0-based** (`0x00` = CH1 … `0x0F` = CH16) |
+| +4 | **data1** | note# / CC# / program# depending on type |
+| +6 | **data2** | velocity / CC value (types without data leave it 0) |
+
+**Type enum = the manual's CUSTOM P1 list order:**
 
 ```
-CMD1: 0xCA..0xD5
-CMD2: 0xDA..0xE5
-CMD3: 0xEA..0xF5
-CMD4: 0xFA..0x105   (overlaps with sysex region — needs confirmation)
-CMD5: 0x10A..0x115
+0x00 NOFF>   0x01 N ON>   0x02 KPRS>   0x03 C CH>   0x04 P CH>   0x05 CPRS>
+0x06 PBEN>   0x07 T CLK   0x08 START   0x09 CONTU   0x0A STOP    0x0B ACTSN
+0x0C SYSRS   0x0D M T C>  0x0E SGPP>   0x0F SGSL>   0x10 T REQ   0x11 NONE
 ```
 
-Note: with stride 16, CMD4 at `0xFA` would overlap with the sysex string starting at `0xF8`. Either CMD4/5 use a different region, or the CMD slots are shorter than 16 bytes. Need a follow-up dump to disambiguate.
+`N ON>`=0x01, `C CH>`=0x03 and `NONE`=0x11 are hardware-observed; the other
+15 codes are inferred from the list order (three anchors land exactly on
+their list positions, including NONE at 17 — the `0x11` "default marker"
+seen at every unset slot).
+
+**Evidence (all three lines of it agree):**
+
+1. **T1 write capture** — CMD1 programmed to `N ON> ch1 note60 vel100`:
+   `0xCE: 0x11→0x01` (type N ON>), `0xD2→0x3C` (60), `0xD4→0x64` (100).
+   The channel byte `0xD0` stayed `0x00` = CH1 0-based — already at target.
+2. **T4 write capture** — CMD2 programmed to `C CH> ch5 cc20 val30`:
+   `0xD6: 0x11→0x03` (C CH>), `0xD8→0x04` (CH5 0-based), `0xDA→0x14` (20),
+   `0xDC→0x1E` (30). A perfect 4-field hit on the slot-2 base `0xD6` = `0xCE+8`.
+3. **Corpus** — all 120 baseline presets decode **600/600 slots** cleanly
+   under this layout (type ≤ 17, channel ≤ 15, data ≤ 127, high bytes 0x00),
+   yielding 32 musically-plausible real commands (e.g. `C CH> ch4 cc11` with
+   values 0/127 — expression pedal heel/toe; `C CH> ch9 cc94`; PR106 carries
+   a command in **slot 5 at `0xEE`**, proving CMD5 exists in-frame).
+
+**Consequences:** the region ends at `0xF5` — it does **not** touch the IA
+bitmap (`0xC8/0xCA/0xCC`), the SysEx toggle (`0xF6`) or the SysEx string
+(`0xF8+`). All five CMD slots are safely writable; the old CMD2/CMD3-only
+write guard is removed. The headless UAT asserts a CMD5 write leaves `0xF6`
+untouched.
 
 ### SysEx string (offsets 0xF8..0x133)
 
@@ -207,7 +249,7 @@ PR1 SYSX bytes set to BYTE1=0x01, BYTE2=0x02, BYTE3=0x03, BYTE4=0x04 produced:
 
 30 bytes × 2-byte pair encoding = 60 bytes from `0xF8..0x133`. Default (unset) value = `0x01 0x00` per pair (visible as the stretch of `01 00 01 00 …` in baseline dumps).
 
-SysEx ON/OFF toggle byte location: still TBD — probably one of the bytes near 0x21..0x23 in the preset header.
+SysEx ON/OFF toggle: at `0xF6` — see the dedicated section below (T5-confirmed).
 
 ### IA on/off bitmap ✅ (fully decoded — 3 bytes for SW1-15)
 
@@ -225,7 +267,7 @@ Confirmed by T5 — Bank Size = 1 makes all 15 SWs IA-eligible. Pattern `_ _ ON 
 - `0xCA = 0x07` (binary `00111` — SW8 + SW9 + SW10)
 - `0xCC = 0x16` (binary `10110` — SW11 + SW13 + SW14)
 
-The earlier ambiguity about whether `0xCA` was shared with CMD1's type byte is now resolved: T5 changed the IA pattern *without* touching CMD1 and `0xCA` flipped exactly as predicted from IA bits alone. CMD1 type byte must live elsewhere (location now confirmed via T4 to be `0xCA` overlap is coincidental — see Custom MIDI section).
+The earlier ambiguity about whether `0xCA` was shared with CMD1's type byte is resolved: T5 changed the IA pattern *without* touching CMD1 and `0xCA` flipped exactly as predicted from IA bits alone. CMD1's type byte lives at `0xCE` — the CMD block starts *after* the bitmap (see the Custom MIDI section).
 
 ### SysEx ON/OFF toggle ✅
 
@@ -236,46 +278,26 @@ Per-preset SysEx ON/OFF flag at **`0xF6`** in each preset frame. T5 set PR2 SysE
 0xF6 = 0x01 — sysex string sent when preset recalls   (SYSX P2 = ON)
 ```
 
-### Custom MIDI block — refined ✅
+### Custom MIDI block — superseded readings (kept for the record)
 
-The CMD region starts immediately after the IA bitmap at `0xCA` and runs through `0xF7` (just before the SysEx region). **CMD slot stride = 12 bytes** (confirmed by CMD1 at `0xCA`, CMD2 type byte at `0xD6` — `0xD6 - 0xCA = 12`).
+Two earlier layouts were documented and both are now known to be wrong:
 
-CMD layout per slot (12 bytes):
+- **"16-byte stride, type at 0xCA"** — built on T1's `0xCA: 0x10→0x1F` flip,
+  read as "type byte = 0x1F = N ON>". In fact T1's PR1 "max state" also
+  turned **all IA switches on**, and with Bank Size 5 that sets the SW6-10
+  bitmap byte `0xCA` to `0x1F` (five bits set). The "type byte" was the IA
+  bitmap all along; `0x1F` as an N ON> encoding was a coincidence.
+- **"12-byte stride, type-first at 0xCA, data at +6/+8"** (the layout app.py
+  implemented until 2026-07-19) — anchored on `0xD6 - 0xCA = 12`. But `0xD6`
+  is CMD2's slot base in the true 8-byte grid (`0xCE + 8`), and `0xCA` isn't
+  a CMD byte at all. Under the 12-byte reading only ~1% of the 600 corpus
+  slots decoded to plausible values; under the 8-byte layout, 100% do.
 
-| Offset within slot | Field | Notes |
-|---|---|---|
-| +0 | Type byte | `0x00` = NONE, `0x03` = `C CH>`, `0x1F` = `N ON>` (more types TBD) |
-| +1 | padding | always `0x00` |
-| +2 | ?? | varies — possibly type-secondary data or shared with IA bitmap for CMD1 |
-| +4 | Channel / data depending on type | for `N ON>`: `0x01` = CH1; for `C CH>` slot byte was `0x04` for set CH5 (encoding may differ per type) |
-| +6 | data1 | for `N ON>` = note number; for `C CH>` = CC# |
-| +8 | data2 | for `N ON>` = velocity; for `C CH>` = value |
-| +10 | padding | always `0x00` |
-
-5 CMD slots × 12 bytes = 60 bytes from `0xCA` to `0x105`. **However** SysEx starts at `0xF8`, which would overlap with CMD5. Current best guess: only 4 CMD slots fit cleanly (`0xCA..0xF5`), and CMD5 is stored elsewhere — OR the slot is 8 bytes not 12, and what looks like CMD2 fields at offsets `0xD6..0xDC` is actually one CMD slot's data spanning a smaller range. Needs one more focused dump to disambiguate (e.g., set CMD3 with distinct values and see where they land).
-
-Confirmed encodings:
-- `N ON>` → type byte `0x1F`
-- `C CH>` → type byte `0x03`
-- `NONE`  → type byte `0x00`
-
-#### ⚠️ CMD layout — confirmed collisions and write guard
-
-With the inferred 12-byte stride and `data2 = +8`:
-
-| Slot | Type-byte offset | data2 offset | Collides with |
-|------|------------------|--------------|---------------|
-| CMD1 | `0xCA` | `0xD2` | **IA bitmap low byte at 0xCA** — confirmed by T5 |
-| CMD2 | `0xD6` | `0xDE` | clean |
-| CMD3 | `0xE2` | `0xEA` | clean |
-| CMD4 | `0xEE` | **`0xF6`** | **SysEx ON/OFF toggle (0xF6)** — confirmed by `tools/uat_headless.py` regression |
-| CMD5 | `0xFA` | `0x102` | runs through the SysEx string region (starts 0xF8) |
-
-**Reproduced corruption:** set a preset's SysEx flag ON (`0xF6 = 0x01`), then save CMD4 with `data2 = 127`. `0xF6` silently became `0x7F` because the same byte was written by both the SysEx toggle and CMD4's data2. Every Custom MIDI save on any preset was flipping the SysEx-on-recall flag.
-
-**Code-side guard (applied):** `rebuild_preset_frame` now only writes CMD slots `i ∈ {1, 2}` (CMD2 and CMD3). CMD1, CMD4, CMD5 are read-only until a focused hardware capture pins the true offsets. The headless UAT (`tools/uat_headless.py`) has a regression check ("CMD4 save preserves SysEx ON/OFF flag") to ensure this can't silently regress.
-
-**To resolve:** on a scratch preset, set CMD2 to `C CH> ch5 cc#42 val100` and CMD3 to `N ON> ch7 note60 vel110`, Write All, Read All, diff against baseline (`tools/diff_dumps.py`). The offsets that change pin the true CMD stride and field positions — at which point the write guard in `rebuild_preset_frame` can be widened.
+This also retires the "CMD4 data2 = 0xF6" collision: the historical
+corruption (saving CMD4 flipped the SysEx toggle) was real, but it was
+caused by the *editor writing to the wrong offset* under the 12-byte model —
+not by the device overlapping the fields. The device's own layout has no
+collision.
 
 ## 5. Global blocks
 
@@ -312,7 +334,13 @@ The MIDI P6 program-mapping table — incoming PC `1..128` → preset `1..120` (
 0x0A = 0x45 (69 = PR70 - 1)
 ```
 
-Each PC slot is **2 bytes** at offsets `0x06, 0x08, 0x0A, …` — value byte holds preset index `0..119` (preset number minus 1), high byte still TBD (may carry the `OFF` flag). 128 slots × 2 bytes + 6 header = ~262 bytes. ✓
+Each PC slot is **2 bytes** at offsets `0x06, 0x08, 0x0A, …` — value byte holds preset index `0..119` (preset number minus 1). 128 slots × 2 bytes + 6 header = ~262 bytes. ✓
+
+**`OFF` encoding = value byte `0x78` (120)** — resolved offline: the baseline
+dump's own PC map contains exactly 8 unmapped slots and every one stores low
+byte `120` with high byte `0x00`; the high byte is `0x00` across all 128
+slots (`tools/analyze_captures.py`, Hunt 2). The editor now writes `0x78` to
+clear a mapping (previously it could only overwrite, never clear).
 
 ### Frame 122 (223 B) — global config + state ✅ revised after T5
 
@@ -324,6 +352,17 @@ Confirmed byte locations from `rev_T5_final.syx` (the earlier T2 attributions fo
 0x46 = Bank Style      (0x00 = FIRST, 0x01 = CURNT, 0x02 = NONE)
 0x2A = ? (PER-PR-mode-related flag, changed when SW11 toggled to PER PR)
 ```
+
+⚠️ **The `0x44`/`0x46` attribution is ambiguous** (found by the 2026-07-19
+offline re-analysis). T5 changed bank size (→1), bank style (→CURNT) *and*
+SW1/SW2 switch types (MOM/HOLD) in one session, producing exactly two new
+bytes: `0x44=0x02, 0x46=0x01`. Those values fit **both** readings — (bank
+size=1 → 0x02, style CURNT → 0x01) *and* (SW1=MOM → 0x02, SW2=HOLD → 0x01).
+T6 then set SW3/SW4 types and wrote the adjacent `0x40=0x02, 0x42=0x01`,
+which looks type-shaped. Worse, T2 nominally set Bank Size = 10 and **no
+frame-122 byte moved to `0x04`** — either the edit never persisted or bank
+size doesn't live at `0x44`. Resolution needs T7 (change bank size alone,
+dump, diff). Until then treat bank-size/style write-back as unverified.
 
 Several other bytes (`0x76, 0x78, 0xB0, 0xB8, 0xC0, 0xC8, 0xCE, 0xD0`) change between dumps even with no user edits — operational state the device updates on every dump (last preset / last bank / dump counter). Ignored when modeling user state.
 
@@ -373,7 +412,7 @@ So SONG stride = 30 bytes; presets stored as `(preset_index, ?)` pairs at 2-byte
 
 **One frame per set, 10 sets total** (`SET1..SET10`). Each set assigns **50 banks → song IDs** at 2-byte stride starting at offset `0x06`.
 
-T4 confirmed by setting SET1: `BK1=SG3, BK2=SG4, BK3=SG5` → frame 135 (= SET1, the 12th frame after the songs):
+T4 confirmed by setting SET1: `BK1=SG3, BK2=SG4, BK3=SG5`:
 
 ```
 0x06 = 0x02 (= SG3 - 1)   bank 1
@@ -383,9 +422,12 @@ T4 confirmed by setting SET1: `BK1=SG3, BK2=SG4, BK3=SG5` → frame 135 (= SET1,
 
 Stride per bank slot = 2 bytes. 50 banks × 2 = 100 bytes payload + 6-byte header + 1-byte tail = 107 ✓.
 
-Frame 134 = SET1, Frame 135 = SET2 (so the user's "SET1 edit" actually landed in frame 135, suggesting frames are indexed `134 + (set_index - 0)` — TBD whether 0-indexed or 1-indexed; the frame-index numbering in the dump may not align cleanly).
-
-Wait — frame indexing: if "frame 135" in the diff is the 135th frame counting from 1 (PR1 = frame 1), then frame 134 = first set, frame 135 = second set. T4 set SET1 — but the diff hit frame 135 not 134. Possible explanation: there's a leading "set table header" frame at 134, and SET1..SET10 start at 135. Or frame 124 isn't actually the first song frame. Needs one more cross-check, but the layout (2-byte bank slots starting at offset 0x06 in a 107 B frame) is solid.
+**Indexing resolved (offline re-analysis, 2026-07-19):** the programmatic
+re-diff of T4 shows the SET1 edit landed in the **first 107-byte frame** of
+the dump (0-based dump frame 134, i.e. immediately after the ten song
+frames). There is no off-by-one and no header frame — `SET n` = the n-th
+107-byte frame, slot value = song# − 1. The earlier "frame 135" observation
+was a frame-counting slip (1-based vs 0-based).
 
 ### Frame 144 (23 B) — tail / global config block ✅ revised after T6
 
@@ -410,16 +452,23 @@ Originally suspected to be a checksum + dump-type. Actually carries **more globa
 
 Switch types are stored in **frame 122 starting around `0x40`**, in 2-byte slots. Encoding confirmed: **`0x00` = LATCH, `0x01` = HOLD, `0x02` = MOMENTARY**.
 
-Observed cumulative changes:
+Full observation matrix (programmatically re-derived 2026-07-19, frame-122
+region `0x28..0x48`, one value byte every 2):
 
-| Test | User action | Resulting bytes |
+| Dump | Device edits that session | `0x28..0x48` value bytes |
 |---|---|---|
-| T5 | SW1 → MOM, SW2 → HOLD | `0x44 = 0x02, 0x46 = 0x01` |
-| T6 | SW3 → MOM, SW4 → HOLD | `0x40 = 0x02, 0x42 = 0x01` (NEW) |
+| baseline | — | `01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` |
+| T2/T3 | SW6/SW7 types (+ PER-PR flags) | `01 01 00 00 02 01 00 …` — new at `0x2A, 0x30, 0x32` |
+| T4 | (T2's type edits reverted) | back to baseline pattern |
+| T5 | bank size 1, style CURNT, SW1→MOM, SW2→HOLD | new at `0x44 = 02, 0x46 = 01` |
+| T6 | SW3→MOM, SW4→HOLD | adds `0x40 = 02, 0x42 = 01` |
 
-The mapping from SW number → byte offset isn't a simple linear table — T6's SW3/SW4 changes landed at *lower* offsets than T5's SW1/SW2. Likely a **stack-style structure** where new modifications prepend (most-recently-modified switch at `0x40`). Without the indexing scheme, the editor can't reliably write switch types yet — would need one more focused test setting types on switches *individually* and dumping after each to nail the order.
-
-For now: the editor can READ all 4 type bytes but the SW-to-slot mapping is approximate.
+Values are always in the confirmed type enum {`00`=LATCH, `01`=HOLD,
+`02`=MOM}, but no simple indexing (linear, reversed, banksize-relative, or
+MRU stack) fits all three sessions — and T5's `0x44/0x46` are double-claimed
+by the bank-size/style attribution (see the frame-122 caution above). The
+cell-to-switch mapping is genuinely underdetermined by the existing captures;
+this is a T7 item. **Editor keeps switch-type write-back disabled.**
 
 ## 6. Hardware quirks observed during testing
 
@@ -429,20 +478,30 @@ These came up while wiring the editor, useful to know when interpreting MIDI tra
 - **MR9 program byte on ch1.** PC traffic on ch1 is **not** a preset-recall signal — it's the device's outgoing program change for the MR9 loop controller (which happens to live on ch1 in the user's rig). For example, PR1 (`MAN OF 1`) sends PC 99 to the MR9. The editor explicitly does not interpret incoming ch1 PC as a preset selector; the foot-controller LCD is driven by virtual-switch clicks only.
 - **No remote dump request.** The All Access has no documented MIDI message that asks it to send a bulk dump. The only way to capture a dump is to initiate it from the front panel (`SYSX → DUMP → CTR STORE`). The editor's "Read All" therefore arms a passive capture and waits.
 
-## 7. Dumps still needed
+## 7. T7 — the one remaining hardware capture session
 
-The original list in this section bundled "one dump per field". That has been superseded by an orthogonal-bundling plan that gets the same coverage in **3 destructive dumps + 1 optional idempotency dump**.
+The T0–T6 series plus the 2026-07-19 offline re-analysis
+(`tools/analyze_captures.py`) resolved everything except the items below.
+They share one property: the existing captures either never changed the
+relevant bytes or changed too many at once. One more session pins them all.
+**Golden rule learned from T2/T3: change ONE thing, dump, diff, repeat** —
+several T2 edits (bank size 10, PED1 PER-PR, style NONE) left no trace,
+almost certainly because CTR STORE wasn't pressed between edits.
 
-Summary of the plan:
+| # | Item | Device steps | What the diff will show |
+|---|------|--------------|-------------------------|
+| 1 | **Bank size vs 0x44** | Change ONLY Bank Size 5→10, dump. Then 10→15, dump. | If frame 122 `0x44` → `0x04` then `0x06`, bank size is confirmed there and the T5 reading stands; if some other byte moves, `0x44/0x46` belong to switch types. |
+| 2 | **Switch-type cell map** | Set SW1→MOM, dump. SW5→HOLD, dump. SW15→MOM, dump. (three separate dumps) | Three single-cell diffs in `0x28..0x48` reveal the SW#→offset rule (and settle #1's ambiguity from the other side). |
+| 3 | **PER-PR header semantics** | Configure PER-PR on SW2 (CH6/CC10) *and* SW9 (CH12/CC20) in one preset, dump. | If `0x40/0x42` hold only the last-configured pair, it's an MRU record and per-slot channels must be hunted elsewhere; if two channel bytes appear, it's per-slot. |
+| 4 | **Filter-grid geometry** | Set BLOC for one message type across CH1, CH2, CH3 (three dumps). | Cell offsets per channel give the channel stride; combined with T3's `0x08/0x0C` (type stride 4) the full (type × channel) grid falls out. |
+| 5 | **Space acceptance (moot but cheap)** | Editor now writes device-native `0x2E` for space, so no risk remains — optionally Write All a renamed preset and confirm the LCD. | Round-trip sanity only. |
+| 6 | **Enum stragglers** | Set op mode REMOTE, dump; PC status ON, dump; one CMD to `KPRS>` and one to `STOP`, dump. | Confirms `REMOTE=0x02`, `ON=0x01`, and two inferred CMD type codes (`0x02`, `0x0A`) — spot-checking the manual-order enum. |
+| 7 | **Song/set OFF markers** | Set one song slot and one set bank to `OFF`, dump. | Whether songs/sets use the PC-map's `value=count` OFF convention (120/150) or something else. |
 
-| Dump | File | What it pins down |
-|------|------|-------------------|
-| T0 (optional) | `rev_T0_idempotent.syx` | Whether tail byte `66` is a stable checksum or a timestamp |
-| T1 | `rev_T1_presets.syx` | Title, all 16 PC slots, IA bitmap, custom MIDI block, sysex string + toggle (PR1 = max state, PR2 = inverse) |
-| T2 | `rev_T2_globals.syx` | Operating mode, bank size/style, IA mode bitmap, starting preset, remote title, switch types, PC-map, MIDI receive ch + PR3 PER-PR override layout |
-| T3 | `rev_T3_songs.syx` | Song frame layout (107 B), set frame layout (457 B), MIDI filter mask (139 B) |
-
-Method for each: take a **Save .syx** baseline first, change only the target fields on the device, capture with **Read All → Save .syx**, then diff the two files with `tools/diff_dumps.py`. Keep the baseline as your restore point.
+Method: **Save .syx** baseline first; after each single edit press CTR STORE,
+dump via Read All, Save .syx, and diff with `tools/diff_dumps.py` (or run
+`tools/analyze_captures.py baseline.syx new.syx` for the annotated report).
+Keep the baseline as your restore point.
 
 ## 8. Timing for writing back
 

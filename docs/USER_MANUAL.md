@@ -83,7 +83,7 @@ Each preset can broadcast up to 5 arbitrary MIDI commands when recalled. Per row
 - **Data 1** — note number / CC# / program number depending on type
 - **Data 2** — velocity / value (where applicable)
 
-Currently CMD5 is hidden (its byte location overlaps the SysEx region and needs one more reverse-engineering pass). Click **Save custom MIDI**.
+All five CMD slots are editable — the full 18-type list from the manual's CUSTOM P1 page, MIDI channel 1-16, and both data bytes. Click **Save custom MIDI**.
 
 #### SysEx string — 30 bytes + ON/OFF
 - The **Send sysex on preset recall** checkbox (top) is the per-preset enable flag. When OFF, the bytes below are stored but not transmitted on recall.
@@ -236,7 +236,7 @@ Full dump time at default pacing: **~11 minutes** (43,647 bytes × 15 ms = 654 s
 | Feature | Reason |
 |---|---|
 | Per-preset PER-PR overrides for IA channel/CC#/ON/OFF values | Byte layout partially decoded, full mapping pending |
-| 5th custom MIDI command per preset (CMD5) | Byte location overlaps the SysEx region; needs one more dump |
+| Bank Size 10/15 write-back confidence | Bank-size byte attribution is ambiguous in the captures; pending one confirmation dump |
 | Switch type write-back (LATCH/MOM/HOLD) | Storage is stack-style indexed; SW-to-byte mapping not yet pinned |
 | MIDI Filter mask editing (BLOC/MERG per type per channel) | Partial — only the byte mechanics confirmed, full bitmap layout TBD |
 | Remote dump-request from editor | Not in the All Access protocol — must be initiated from the device |
@@ -260,7 +260,7 @@ rocktron-all-access/
 │   ├── MANUAL_SUMMARY.md        Protocol extracts from the manual
 │   └── MIDI_SPEC.md             MIDI Implementation Chart
 └── tools/
-    ├── uat_headless.py          23-check regression harness (no hardware)
+    ├── uat_headless.py          31-check regression harness (no hardware)
     └── diff_dumps.py            Frame-aligned dump diff helper
 ```
 

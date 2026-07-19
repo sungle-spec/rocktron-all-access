@@ -24,7 +24,7 @@ Click any of the 120 presets in the left list to open the workbench:
 | **Name** | 13 characters (A-Z, 0-9, `.` renders as space). |
 | **PC slots — 16 channels** | Per-channel value (0-127) + active/OFF toggle, with channel-name labels (LOOP, HEAD, DIEZ, …). Save in one click. |
 | **IA bitmap** | All 15 IA switches (SW1-15) as toggle pills. Click to flip on/off, save. |
-| **Custom MIDI** | **CMD2 and CMD3 writable**; CMD1 and CMD4 read-only (greyed out) because their byte positions overlap the IA bitmap (CMD1) and the SysEx ON/OFF toggle (CMD4 data2). CMD5 hidden — slot location not pinned. Re-widen the guard once a focused hardware capture confirms the true CMD offsets. |
+| **Custom MIDI** | **All 5 CMD slots writable** — full 18-type list, channel 1-16, data1/data2. Layout (5 × 8-byte slots at 0xCE) confirmed against every preset of a real bulk dump plus two hardware write-captures; no overlap with the IA bitmap or SysEx toggle. |
 | **SysEx string** | 30-byte payload + per-preset ON/OFF toggle. |
 
 ### Globals (Global Config tab)
@@ -82,19 +82,18 @@ After 7 capture/diff cycles (T0-T6), every editable field documented in the manu
 | Preset name (13 chars)                      | ✅ | ✅ | ✅ |
 | 16 PC slots per preset                      | ✅ | ✅ | ✅ |
 | IA on/off bitmap (SW1-15)                   | ✅ | ✅ | ✅ |
-| Custom MIDI (CMD2, CMD3)                    | ✅ | ✅ | ✅ |
-| Custom MIDI (CMD1, CMD4, CMD5)              | partial — CMD1 type byte overlaps IA bitmap (0xCA); CMD4 data2 overlaps SysEx ON/OFF toggle (0xF6) and CMD4 tail runs into SysEx string; CMD5 location unconfirmed | ⛔ | ⛔ until offsets pinned on hardware |
+| Custom MIDI (CMD1-CMD5, full type enum)     | ✅ | ✅ | ✅ (layout re-derived offline from the capture corpus; 3 of 18 type codes hardware-observed, rest follow the manual's list order) |
 | SysEx string (30 bytes) + ON/OFF toggle     | ✅ | ✅ | ✅ |
 | Channel / switch / pedal names (4 chars)    | ✅ | ✅ | ✅ (splice into name block) |
 | Songs (150 songs × 10 preset slots)         | ✅ | ✅ | ✅ |
 | Sets (10 sets × 50 banks → song)            | ✅ | ✅ | ✅ |
-| PC Map (incoming PC1..128 → preset)         | ✅ | ✅ | ✅ |
+| PC Map (incoming PC1..128 → preset, incl. clearing to OFF) | ✅ | ✅ | ✅ |
 | Operating Mode / Bank Size / Bank Style     | ✅ | ✅ | ✅ |
 | MIDI Receive Channel (incl. OMNI)           | ✅ | ✅ | ✅ |
 | Remote Title Number                         | ✅ | ✅ | ✅ |
 | Program Change Status (OFF/ON/MAP)          | ✅ | ✅ | ✅ |
 | Switch Type (LATCH/MOM/HOLD per IA)         | ✅ | ⛔ | ⛔ — stack-style indexing not pinned |
-| Per-preset PER-PR override block            | partial | ⛔ | ⛔ |
+| Per-preset PER-PR override block            | partial — slot table + CC#/ON/OFF decoded, channel byte located at 0x40 | ⛔ | ⛔ pending slot-semantics capture |
 | MIDI Filter mask (per type / per channel)   | partial | ⛔ | ⛔ |
 | Tail "66 01" before final F7                | confirmed constant — not a checksum | n/a | n/a |
 
@@ -115,16 +114,18 @@ The editor streams SysEx straight to expensive hardware and has no auth, so it i
 
 ## Testing
 
-`tools/uat_headless.py` is a 23-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
+`tools/uat_headless.py` is a 31-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
 
 ```bash
 .venv/bin/python tools/uat_headless.py path/to/your-full-dump.syx
-# -> RESULT: 23/23 checks passed
+# -> RESULT: 31/31 checks passed
 ```
 
 (No dump handy? Run it with no argument — it synthesizes a structurally-valid 145-frame dump and runs the same checks.)
 
-Includes a regression test for the historical CMD4 / SysEx-toggle collision so the bug can't return silently.
+Includes a regression test that a CMD5 save leaves the SysEx ON/OFF toggle (0xF6) untouched — guarding against the historical Custom-MIDI/SysEx-toggle corruption ever returning.
+
+`tools/analyze_captures.py` is the offline RE evidence tool: point it at a baseline dump (plus optional capture files) and it re-derives and asserts every documented byte-layout claim against the data.
 
 ## Documentation
 

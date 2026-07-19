@@ -1022,7 +1022,7 @@
       <li><b>Preset name</b> — 13 chars, A-Z 0-9 (the device's <code>.</code> renders as space).</li>
       <li><b>16 PC slots per preset</b> — value (0-127) + active/OFF flag, one per MIDI channel.</li>
       <li><b>Instant-access on/off bitmap</b> — all 15 SWs (SW1-15), saved per preset via CTR STORE.</li>
-      <li><b>Custom MIDI commands</b> — 4 of the 5 CMD slots per preset (CMD5 location TBD).</li>
+      <li><b>Custom MIDI commands</b> — all 5 CMD slots per preset, full 18-type list.</li>
       <li><b>SysEx string</b> — 30 bytes per preset + ON/OFF toggle.</li>
       <li><b>Songs</b> — all 150 songs, 10 preset slots each.</li>
       <li><b>Sets</b> — all 10 sets, 50 banks → song mapping each.</li>
@@ -1037,8 +1037,6 @@
       <li><b>Switch type</b> (LATCH/MOM/HOLD per IA switch) — encoding decoded but
           slot indexing scheme is stack-style and not fully mapped, so it's
           hidden from the UI for safety.</li>
-      <li><b>5th custom MIDI command (CMD5)</b> — its byte position would
-          overlap the SysEx region; only CMD1-4 are exposed.</li>
       <li><b>Per-preset PER-PR override block</b> — partial; UI not wired yet.</li>
       <li><b>MIDI filter mask</b> — single bit-edit confirmed, full bitmap
           layout not yet decoded.</li>
@@ -1577,7 +1575,7 @@ function selectPreset(num) {
       <div id="cmd-list"></div>
       <div class="editor-actions">
         <button class="primary save-btn" onclick="savePresetCMD()">Save custom MIDI</button>
-        <span class="hint">CMD5 not yet wired (its byte location overlaps SysEx). Type encodings still being decoded — unknown values shown as ??(0xNN).</span>
+        <span class="hint">Type byte = index into the manual's CUSTOM P1 list (layout verified against all 120 presets offline; see docs/REVERSE_ENGINEERING.md).</span>
       </div>
     </div>
 
@@ -1640,46 +1638,33 @@ function renderPresetIA(p) {
   });
 }
 
-const CMD_TYPE_OPTIONS = ['NONE','NOFF>','N ON>','KPRS>','C CH>','P CH>','CPRS>','PBEN>',
-  'T CLK','START','CONTU','STOP','ACTSN','SYSRS','MTC>','SGPP>','SGSL>','T REQ'];
+// Manual CUSTOM P1 list order — the type byte is the index into this list
+// (N ON>=0x01, C CH>=0x03, NONE=0x11 observed on hardware; layout confirmed
+// against all 120 baseline presets by tools/analyze_captures.py).
+const CMD_TYPE_OPTIONS = ['NOFF>','N ON>','KPRS>','C CH>','P CH>','CPRS>','PBEN>',
+  'T CLK','START','CONTU','STOP','ACTSN','SYSRS','M T C>','SGPP>','SGSL>',
+  'T REQ','NONE'];
 
 function renderPresetCMD(p) {
   const list = $('cmd-list'); list.innerHTML = '';
   (p.cmd_slots || []).forEach(c => {
     const row = document.createElement('div');
     row.className = 'cmd-row';
-    // CMD1 type byte overlaps IA bitmap; CMD4 data2 overlaps the SysEx ON/OFF
-    // toggle and CMD4 runs into the SysEx string. The server-side write guard
-    // (app.py rebuild_preset_frame) only writes CMD2/CMD3; greying out
-    // CMD1/CMD4 here matches that, so the user doesn't see an edit "save" with
-    // no effect on hardware. Re-enable once those offsets are pinned.
-    const writable = (c.idx === 2 || c.idx === 3);
     const opts = CMD_TYPE_OPTIONS.map(o =>
       `<option ${o === c.type_label ? 'selected' : ''}>${o}</option>`).join('');
     const isUnknown = c.type_label.startsWith('??');
-    const dis = writable ? '' : 'disabled';
-    const hint = writable
-      ? `type 0x${c.type_byte.toString(16).padStart(2,'0').toUpperCase()}`
-      : `read-only — CMD${c.idx} offset overlaps another field (RE pending)`;
     row.innerHTML = `
       <div class="cmd-num">CMD${c.idx}</div>
-      <select ${dis} data-cmd-idx="${c.idx}" data-cmd-field="type_label">
+      <select data-cmd-idx="${c.idx}" data-cmd-field="type_label">
         ${opts}
         ${isUnknown ? `<option selected>${c.type_label}</option>` : ''}
       </select>
-      <input ${dis} type="number" min="0" max="127" value="${c.channel}" data-cmd-idx="${c.idx}" data-cmd-field="channel" title="Channel byte">
-      <input ${dis} type="number" min="0" max="127" value="${c.data1}" data-cmd-idx="${c.idx}" data-cmd-field="data1" title="Data 1 (note / cc# / prog)">
-      <input ${dis} type="number" min="0" max="127" value="${c.data2}" data-cmd-idx="${c.idx}" data-cmd-field="data2" title="Data 2 (velocity / value)">
-      <span class="hint" style="font-size:9px;${writable?'':'color:#888;'}">${hint}</span>`;
-    if (!writable) row.style.opacity = '0.55';
+      <input type="number" min="1" max="16" value="${c.channel}" data-cmd-idx="${c.idx}" data-cmd-field="channel" title="MIDI channel (1-16)">
+      <input type="number" min="0" max="127" value="${c.data1}" data-cmd-idx="${c.idx}" data-cmd-field="data1" title="Data 1 (note / cc# / prog)">
+      <input type="number" min="0" max="127" value="${c.data2}" data-cmd-idx="${c.idx}" data-cmd-field="data2" title="Data 2 (velocity / value)">
+      <span class="hint" style="font-size:9px;">type 0x${c.type_byte.toString(16).padStart(2,'0').toUpperCase()}</span>`;
     list.appendChild(row);
   });
-  if (p.cmd_slots && p.cmd_slots.length < 5) {
-    const note = document.createElement('div');
-    note.className = 'hint';
-    note.textContent = `CMD5 hidden — its byte position would overlap the SysEx region. Awaiting one more targeted dump to resolve.`;
-    list.appendChild(note);
-  }
 }
 
 function renderPresetSYSX(p) {

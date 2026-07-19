@@ -13,8 +13,8 @@ Protocol status (reverse-engineered — see docs/REVERSE_ENGINEERING.md):
     • Frames 1..119   cmd 2B, 309 B  presets 2..120
     • Frames 120..122 cmd 2B, mixed  global tables (PC map, misc)
     • Frame 123       cmd 2B, 279 B  channel+switch NAME block
-    • Frames 124..133 cmd 2B, 457 B  sets / large globals  (10 blocks)
-    • Frames 134..143 cmd 2B, 107 B  songs / small globals (10 blocks)
+    • Frames 124..133 cmd 2B, 457 B  songs (15 songs × 30 B each, 10 blocks)
+    • Frames 134..143 cmd 2B, 107 B  sets  (50 banks × 2 B each, 10 blocks)
     • Frame 144       cmd 2B, 23 B   end-of-dump marker + checksum-ish
   Every payload byte is the low 7-bit of an ASCII/value byte, followed by
   a 0x00 "high-bit" companion byte (standard 7-bit sysex packing).
@@ -69,19 +69,27 @@ IA_SWITCH_COUNT = 15
 # Per-preset SysEx ON/OFF toggle — confirmed at 0xF6 from rev_T5_final.syx
 SYSX_ON_OFF_BYTE = 0xF6
 
-# Custom MIDI string — 5 commands × 12 byte stride starting at 0xCA
-# Slot layout: +0 type, +4 channel, +6 data1, +8 data2 (other bytes padding/secondary)
-# Type encodings observed: NONE=0x00, C CH>=0x03, N ON>=0x1F (more TBD)
-CMD_REGION_OFF = 0xCA
+# Custom MIDI string — 5 commands × 8-byte slots starting at 0xCE.
+# Slot layout (raw offsets within slot): +0 type, +2 channel (0-based),
+# +4 data1, +6 data2; odd offsets are the usual 0x00 high-companion bytes.
+# Layout confirmed offline (tools/analyze_captures.py): 600/600 slots across
+# all 120 baseline presets decode cleanly, T1's CMD1 (N ON> ch1 n60 v100) and
+# T4's CMD2 (C CH> ch5 cc20 v30) write-captures land exactly on these offsets,
+# and PR106 carries a real command in slot 5 (0xEE). The region ends at 0xF5 —
+# no overlap with the SysEx toggle (0xF6) or the IA bitmap (0xC8/0xCA/0xCC);
+# the earlier "CMD1 type at 0xCA" reading was T1's all-IA-on bitmap (0x1F)
+# misattributed as a type byte.
+CMD_REGION_OFF = 0xCE
 CMD_COUNT = 5
-CMD_STRIDE = 12
+CMD_STRIDE = 8
 
-# 5-bit type → label table (best-known encodings; ?? = needs disambiguation)
-CMD_TYPE_LABELS = {
-    0x00: 'NONE',
-    0x03: 'C CH>',
-    0x1F: 'N ON>',
-}
+# Type byte = index into the manual's CUSTOM P1 list (page order). Observed on
+# hardware: N ON>=0x01, C CH>=0x03, NONE=0x11; the rest follow the list order
+# (unobserved codes marked inferred in docs/REVERSE_ENGINEERING.md).
+CMD_TYPE_ORDER = ['NOFF>', 'N ON>', 'KPRS>', 'C CH>', 'P CH>', 'CPRS>',
+                  'PBEN>', 'T CLK', 'START', 'CONTU', 'STOP', 'ACTSN',
+                  'SYSRS', 'M T C>', 'SGPP>', 'SGSL>', 'T REQ', 'NONE']
+CMD_TYPE_LABELS = {i: lbl for i, lbl in enumerate(CMD_TYPE_ORDER)}
 CMD_LABEL_TO_TYPE = {v: k for k, v in CMD_TYPE_LABELS.items()}
 
 # SysEx string — 30 bytes × 2-byte pair encoding
@@ -93,8 +101,9 @@ NAME_STRIDE = 2  # ascii byte + 0x00 high byte (legacy alias used by encode_asci
 
 # The All Access stores `.` (0x2E) as its space-equivalent character — most
 # pre-90s Rocktron units have no real space char in their A-Z 0-9 set, so the
-# user picks `.` to indicate word breaks. We display 0x2E as space and
-# encode space as 0x20 (which the device also accepts, per dump evidence).
+# user picks `.` to indicate word breaks. We display 0x2E as space and write
+# 0x2E back for space — matching the device's own representation, since 0x20
+# acceptance was never verified on hardware.
 
 def decode_ascii_pairs(buf, off, n_chars):
     """Decode n_chars from (ascii_lo, hi) byte pairs. 0x00 ends the string."""
@@ -116,7 +125,8 @@ def encode_ascii_pairs(s, n_chars):
     padded = (s or '').upper().encode('ascii', errors='replace')[:n_chars].ljust(n_chars, b' ')
     out = bytearray()
     for b in padded:
-        out.append(b & 0x7F)
+        # Store space as the device-native `.` (0x2E) — see note above.
+        out.append(0x2E if b == 0x20 else b & 0x7F)
         out.append(0x00)
     return bytes(out)
 
@@ -251,25 +261,22 @@ def encode_ia_bitmap(bits):
 
 
 def decode_custom_midi(frame):
-    """Decode 5 custom MIDI command slots starting at 0xCA, stride 12 bytes.
+    """Decode the 5 custom MIDI command slots (8-byte stride at 0xCE).
 
-    NOTE: this region overlaps with the IA bitmap (0xCA, 0xCC) — the lo bitmap
-    byte happens to be at the CMD1 type-byte position. We treat the IA bitmap
-    bits as authoritative and additionally decode the type byte (which still
-    works for slot identification). For CMD5 the slot would land at 0xFA which
-    overlaps with the SysEx region; only CMD1..CMD4 are returned for now.
+    `channel` is returned 1-based (1-16) to match the PC-slot editor; the
+    wire byte is 0-based. An unset slot is type NONE (0x11).
     """
     cmds = []
-    for i in range(min(CMD_COUNT, 4)):   # cap at 4 until CMD5 location is confirmed
+    for i in range(CMD_COUNT):
         base = CMD_REGION_OFF + i * CMD_STRIDE
         type_byte = frame[base]
         cmds.append({
             'idx': i + 1,
             'type_byte': type_byte,
             'type_label': CMD_TYPE_LABELS.get(type_byte, f'??(0x{type_byte:02X})'),
-            'channel': frame[base + 4],
-            'data1': frame[base + 6],
-            'data2': frame[base + 8],
+            'channel': (frame[base + 2] & 0x0F) + 1,
+            'data1': frame[base + 4],
+            'data2': frame[base + 6],
         })
     return cmds
 
@@ -346,30 +353,27 @@ def rebuild_preset_frame(orig_frame, *, name=None, pc_slots=None,
             out[off] = b
 
     if cmd_slots is not None:
-        # CMD1 type byte (0xCA) overlaps the IA-bitmap (T5 confirmed). CMD4
-        # data2 lands at 0xF6 = SYSX_ON_OFF_BYTE, and CMD4's tail runs into
-        # the SysEx string at 0xF8. CMD5+ is not pinned. Until a focused
-        # hardware capture confirms CMD1/CMD4 offsets, only CMD2 (i=1) and
-        # CMD3 (i=2) are safe to write — every other slot would silently
-        # corrupt adjacent fields (the SysEx ON/OFF flag, IA bits, etc.).
-        # The headless UAT enforces this regression.
+        # All 5 slots are writable: the 8-byte-stride region 0xCE..0xF5 is
+        # fully inside the preset frame and touches neither the IA bitmap
+        # (0xC8/0xCA/0xCC) nor the SysEx toggle (0xF6) / string (0xF8+).
+        # The headless UAT asserts a CMD5 write leaves 0xF6 untouched.
         for cmd in cmd_slots:
             i = cmd['idx'] - 1
-            if i not in (1, 2):    # only CMD2, CMD3 occupy clean byte ranges
+            if not 0 <= i < CMD_COUNT:
                 continue
             base = CMD_REGION_OFF + i * CMD_STRIDE
-            if i > 0:    # only write type byte for CMD2-4 (CMD1 = IA bitmap)
-                tb = cmd.get('type_byte')
-                if tb is None and cmd.get('type_label'):
-                    tb = CMD_LABEL_TO_TYPE.get(cmd['type_label'], 0)
-                if tb is not None:
-                    out[base] = tb & 0x7F
+            tb = cmd.get('type_byte')
+            if tb is None and cmd.get('type_label'):
+                tb = CMD_LABEL_TO_TYPE.get(cmd['type_label'])
+            if tb is not None:
+                out[base] = tb & 0x7F
             if 'channel' in cmd:
-                out[base + 4] = max(0, min(127, int(cmd['channel']))) & 0x7F
+                # UI channel is 1-based; the wire byte is 0-based.
+                out[base + 2] = max(0, min(15, int(cmd['channel']) - 1)) & 0x7F
             if 'data1' in cmd:
-                out[base + 6] = max(0, min(127, int(cmd['data1']))) & 0x7F
+                out[base + 4] = max(0, min(127, int(cmd['data1']))) & 0x7F
             if 'data2' in cmd:
-                out[base + 8] = max(0, min(127, int(cmd['data2']))) & 0x7F
+                out[base + 6] = max(0, min(127, int(cmd['data2']))) & 0x7F
 
     if sysex_bytes is not None:
         # Each sysex byte is stored as a 2-byte pair: (value, terminator).
@@ -452,10 +456,12 @@ def encode_pc_map(orig_frame, pc_map):
     for i, v in enumerate(pc_map[:128]):
         off = 6 + i * 2
         if v is None:
-            # `OFF` in the manual — encoding is TBD; preserve original byte
+            # `OFF` = 120 (0x78). Confirmed offline: the baseline dump's 8
+            # unmapped slots all store exactly 120 with high byte 0x00
+            # (tools/analyze_captures.py, Hunt 2).
+            out[off] = 0x78
             continue
         out[off] = max(0, min(119, int(v))) & 0x7F
-        # high byte at off+1 left untouched (TBD)
     return bytes(out)
 
 
@@ -487,11 +493,17 @@ def encode_set(orig_frame, banks):
 def encode_globals(global_state_frame, tail_frame, edits):
     """Splice global edits into the 223 B state frame and 23 B tail frame.
 
-    Byte offsets confirmed by rev_T5_final.syx test:
+    Byte offsets from rev_T5_final.syx:
       Frame 122 (global state, 223 B):
         0x08 — operating mode (0=BANK, 1=SONG, 2=REMOTE)
         0x44 — bank size       (5=0, 1=2; 10/15 still TBD — use best guesses)
         0x46 — bank style      (FIRST=0, CURNT=1, NONE=2)
+      CAUTION: the 0x44/0x46 attribution is ambiguous — T5 changed bank size,
+      bank style AND SW1/SW2 switch types in one session, and T6's SW3/SW4
+      type edits landed at the adjacent 0x40/0x42 with type-shaped values.
+      0x44/0x46 may therefore be switch-type cells, not bank size/style.
+      Needs the T7 disambiguation capture (docs/REVERSE_ENGINEERING.md §T7)
+      before bank-size write-back can be trusted.
       Frame 145 (tail, 23 B):
         0x08 — PC status       (OFF=0, MAP=2; ON=1 best guess)
         0x10 — remote title number (0-127)
