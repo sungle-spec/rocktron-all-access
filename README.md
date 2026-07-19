@@ -134,6 +134,7 @@ Includes a regression test that a CMD5 save leaves the SysEx ON/OFF toggle (0xF6
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | end users | install, first launch, first Read All / Write All, troubleshooting |
 | [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | end users | 9-section walkthrough — installation, every tab, common workflows, troubleshooting |
 | [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) | developers | byte-level field map of the bulk-dump format |
+| [docs/HARDWARE_TEST_PLAN.md](docs/HARDWARE_TEST_PLAN.md) | testers / RE contributors | the one remaining device session: RE disambiguation captures + on-device write-path validation |
 | [docs/MANUAL_SUMMARY.md](docs/MANUAL_SUMMARY.md) | reference | extracts from the 77-page Rocktron manual |
 | [docs/MIDI_SPEC.md](docs/MIDI_SPEC.md) | reference | the official MIDI Implementation Chart |
 

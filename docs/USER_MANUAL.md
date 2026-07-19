@@ -257,6 +257,7 @@ rocktron-all-access/
 │   ├── GETTING_STARTED.md       Install & first-run guide
 │   ├── USER_MANUAL.md           This file
 │   ├── REVERSE_ENGINEERING.md   Byte map
+│   ├── HARDWARE_TEST_PLAN.md    Remaining device-session test plan
 │   ├── MANUAL_SUMMARY.md        Protocol extracts from the manual
 │   └── MIDI_SPEC.md             MIDI Implementation Chart
 └── tools/

@@ -503,6 +503,10 @@ dump via Read All, Save .syx, and diff with `tools/diff_dumps.py` (or run
 `tools/analyze_captures.py baseline.syx new.syx` for the annotated report).
 Keep the baseline as your restore point.
 
+The full runnable session — these captures plus on-device validation of the
+new write paths (CMD slots, 0x2E spaces, PC-map clear) — is scripted in
+[HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
+
 ## 8. Timing for writing back
 
 Manual: *"about 65 Hz (or about 1 byte every 15 milliseconds). Faster transfer will cause a "Buffer Overflow" error on All Access."*
