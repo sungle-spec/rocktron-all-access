@@ -32,22 +32,40 @@ produces usable results.
 ## Part 1 — RE disambiguation captures (device → editor)
 
 Read-only for the device's own data (front-panel edits + dumps; no Write
-All needed). Each row = one capture cycle: make the edit, CTR STORE, `SYSX →
-DUMP → CTR STORE` with the editor's **Read All** armed, Save .syx, diff.
+All needed). Each row = one capture cycle: make the edit, `SYSX → DUMP →
+CTR STORE` with the editor's **Read All** armed, Save .syx. Edits are
+**cumulative** — diff each capture against the **previous** one, not the
+baseline.
 
-| # | Question | Device steps | The diff settles |
+**Two different "P4" pages — don't mix them up:**
+- `SETUP P4` = IA operating status per switch — `GLOBAL` / `PER PR` only.
+- `MIDI P4` = **Switch Type** — `LATCHING` / `MOMENTARY` / `HOLD`.
+Both pages (and MIDI P2/P3) only list switches that are **currently IA**,
+i.e. switch# > Bank Size. At Bank Size 15 no switches are IA, so MIDI P4
+shows nothing — the switch-type captures below therefore run at **Bank
+Size 1** (all 15 switches IA), after the bank-size captures are done.
+
+Also remember: channel fields display the **4-char channel NAME** (from
+SETUP P5), not `CH<n>` — "set Center to CH 6" means "set it to whatever
+CH6 is named on your rig".
+
+Run in this order:
+
+| # | Question | Device steps (`2ND` on first; `→`/`←` = page, Left/Center/Right = fields) | The diff settles |
 |---|----------|--------------|------------------|
-| 1a | Where does Bank Size live? | SETUP P2: 5 → **10**. Dump. | If frame-122 `0x44` → `0x04`, bank size confirmed at `0x44`; if another byte moves, the current `encode_globals` target is wrong (see the 0x44 caution in RE.md). |
-| 1b | Bank Size 15 code | SETUP P2: 10 → **15**. Dump. | Confirms/refutes `0x06` for 15. |
-| 2a | Switch-type cell map (1/3) | SETUP P4: SW1 → MOM. Dump. | Single-cell diff in `0x28..0x48`. |
-| 2b | Switch-type cell map (2/3) | SW5 → HOLD. Dump. | Second point → offset rule. |
-| 2c | Switch-type cell map (3/3) | SW15 → MOM. Dump. | Third point confirms the rule; also resolves whether T5's `0x44/0x46` were types or bank size/style (cross-checks #1a). |
-| 3 | PER-PR header semantics | On one preset: PER-PR SW2 = CH6/CC10/ON127/OFF0, CTR STORE, **then** PER-PR SW9 = CH12/CC20/ON100/OFF50, CTR STORE. Dump once. | If preset-frame `0x40/0x42` hold only CH12/SW9, it's a most-recently-configured record; if two channel bytes appear, channels are per-slot. |
-| 4a | Filter grid (channel stride) | MIDI P4: set `C CH` filter → BLOC for CH1. Dump. | First cell. |
-| 4b | Filter grid | Same message type → BLOC for CH3. Dump. | Channel stride (combined with T3's type stride of 4). |
-| 5 | Enum stragglers | SETUP P1 → REMOTE. Dump. Then MIDI P5 → ON. Dump. | Confirms `REMOTE = 0x02` (frame-122 `0x08`) and `PC status ON = 0x01` (tail `0x08`) — both currently best-guess. |
-| 6 | CMD type-enum spot check | On a scratch preset: CMD2 → `KPRS>` ch2 d1=10 d2=20; CTR STORE. Dump. | Expected: `0xD6 = 0x02`. One hit validates the inferred manual-order codes between the three observed anchors. |
-| 7 | Song/set OFF markers | Set SONG150 slot 1 → OFF; SET10 bank 50 → OFF. CTR STORE. Dump. | Whether songs/sets use the PC-map convention (value = count: 120/150) for OFF. |
+| 1a | Where does Bank Size live? | `SETUP` → `→` to P2 (`bnk size`) → Right INC to **10**. Dump. | If frame-122 `0x44` → `0x04`, bank size confirmed at `0x44`; if another byte moves, `encode_globals` is writing the wrong byte (see the 0x44 caution in RE.md). |
+| 1b | Bank Size 15 code | `SETUP` P2 → **15**. Dump. | Confirms/refutes `0x06` for 15. |
+| 1c | Bank Size 1 code — the 0x44 tiebreaker | `SETUP` P2 → **1**. Dump. | T5 saw `0x44=0x02` after changing bank size **and** SW1/SW2 types together. This capture changes bank size to 1 **alone** — if `0x44` → `0x02` here, T5's attribution stands; if not, `0x44` belongs to switch types. Also leaves all 15 switches IA for the next rows. |
+| 2a | Switch-type cell map (1/3) | `MIDI` → `→`×3 to P4 (`<sw> <type>`) → Left `SW1`, Right `MOMENTARY`. Dump. | Single-cell diff in frame-122 `0x28..0x48`. |
+| 2b | Switch-type cell map (2/3) | MIDI P4 → Left `SW5`, Right `HOLD`. Dump. | Second point → the SW#→offset rule. |
+| 2c | Switch-type cell map (3/3) | MIDI P4 → Left `SW15`, Right `MOMENTARY`. Dump. | Third point confirms the rule and cross-checks 1c. |
+| 3 | PER-PR header semantics | `SETUP` → `→`×3 to P4 → Left `SW2`, Right `PER PR`; Left `SW9`, Right `PER PR`. `2ND` off, recall a scratch preset. `2ND` → `MIDI` → `→` to P2 (`<sw> <ch> cn<n>`): Left `SW2`, Center `CH 6`, Right `cn 10`; `→` to P3 (`<sw> ON<v> OFF<v>`): Left `SW2`, Center `127`, Right `0`. Back to P2: Left `SW9`, Center `CH 12`, Right `cn 20`; P3: Left `SW9`, Center `100`, Right `50`. CTR STORE the preset. Dump. | If preset-frame `0x40/0x42` hold only the last pair (CH12/SW9), it's a most-recently-configured record; if two channel bytes appear, channels are stored per-slot. |
+| 4a | Filter grid (channel stride) | `SETUP` → `→`×6 to P7 (MIDI filtering, `<msg> <ch> <bloc/merg>`): Left `CTR CHANGE`, Center `CH 1`, Right `BLOC`. Dump. | First cell of the CC row. |
+| 4b | Filter grid | SETUP P7: Left `CTR CHANGE`, Center `CH 3`, Right `BLOC`. Dump. | Channel stride (combined with T3's `CH2`/`CH5` cells at `0x08`/`0x0C`). |
+| 5a | REMOTE enum | `SETUP` P1 (`mode`) → Right → `REMOTE`. Dump. | Confirms `REMOTE = 0x02` at frame-122 `0x08` (currently best-guess). |
+| 5b | PC-status ON enum | `MIDI` → `→`×4 to P5 (`prog change`) → Right → `ON`. Dump. | Confirms `ON = 0x01` at tail `0x08`. |
+| 6 | CMD type-enum spot check | `2ND` → `CUSTOM` → P1 (`PR<n> CMD<n> <type>`): Left → a scratch preset, Center → `CMD2`, Right → cycle to `KPRS>`. (`→` only activates on `>`-types — pick the type first.) `→` to P2: Left → CH2's name, Center → `10`, Right → `20`. Dump. | Expected `0xD6 = 0x02`. Note: the front-panel cycle order starts at `NONE` — the **stored** byte enum is the manual's CUSTOM P1 list order (`NOFF>`=0 … `NONE`=17), so don't infer codes from the display cycle. |
+| 7 | Song/set OFF markers | `2ND` → `SONG/SET`: SONG150 slot 1 → `OFF`; SET10 bank 50 → `OFF`. CTR STORE. Dump. | Whether songs/sets use the PC-map OFF convention (value = count: 120/150). |
 
 **After Part 1:** update REVERSE_ENGINEERING.md with each answer, adjust
 `app.py` (`BANK_SIZE_BYTES`, switch-type table, filter map, song/set OFF)
