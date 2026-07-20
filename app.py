@@ -281,6 +281,35 @@ def decode_custom_midi(frame):
     return cmds
 
 
+PER_PR_TABLE_BASE = 0x40   # IA/PED slot table — offset = base + (17 - chanid) * 8
+PER_PR_SLOT_STRIDE = 8
+PER_PR_SLOT_COUNT = 17     # chan-id 1..15 = SW1..SW15, 16 = PED2, 17 = PED1
+
+def decode_per_pr_slots(frame):
+    """Decode the 17-slot per-preset IA/pedal override table (0x40..0xC7).
+
+    Confirmed offline (2026-07-20, T7 session): field +0 = MIDI channel
+    (0-based!), +2 = CC#, +4 = ON value, +6 = OFF value. Default/unconfigured
+    state: channel=0 (CH1), CC# = the slot's own chan-id number, ON=127,
+    OFF=0 — reproduced exactly by two independent hardware sessions
+    (T2's original SW11+PED1 capture, re-attributed from PR1 not PR3; and a
+    clean SW9+SW2 single-preset capture). chan-id 17 = PED1 (confirmed);
+    16 = PED2 (by the same descending pattern, not yet independently tested).
+    """
+    slots = []
+    for chanid in range(1, PER_PR_SLOT_COUNT + 1):
+        base = PER_PR_TABLE_BASE + (17 - chanid) * PER_PR_SLOT_STRIDE
+        label = f'SW{chanid}' if chanid <= 15 else ('PED2' if chanid == 16 else 'PED1')
+        slots.append({
+            'chanid': chanid, 'label': label,
+            'channel': frame[base] + 1,   # report 1-based to match the rest of the UI
+            'cc': frame[base + 2],
+            'on': frame[base + 4],
+            'off': frame[base + 6],
+        })
+    return slots
+
+
 def decode_sysex_string(frame):
     """Decode the 30-byte SysEx string at 0xF8 (2-byte pair encoding)."""
     bytes_out = []
@@ -297,6 +326,7 @@ def parse_preset_frame(preset_num, frame):
         'pc_slots': decode_pc_slots(frame),
         'ia_bits': decode_ia_bitmap(frame),
         'cmd_slots': decode_custom_midi(frame),
+        'per_pr_slots': decode_per_pr_slots(frame),
         'sysex_bytes': decode_sysex_string(frame),
         'sysex_on': bool(frame[SYSX_ON_OFF_BYTE] & 0x01),   # confirmed via rev_T5
         'raw_hex': frame.hex(),
@@ -490,30 +520,54 @@ def encode_set(orig_frame, banks):
     return bytes(out)
 
 
+SWITCH_TYPE_BASE = 0x46    # globals frame — offset(SW#) = base - (SW# - 1) * 2
+SWITCH_TYPE_BYTES = {'LATCH': 0x00, 'MOMENTARY': 0x01, 'HOLD': 0x02}
+SWITCH_TYPE_LABELS = {v: k for k, v in SWITCH_TYPE_BYTES.items()}
+
+def _switch_type_offset(sw):
+    return SWITCH_TYPE_BASE - (sw - 1) * 2
+
+
 def encode_globals(global_state_frame, tail_frame, edits):
     """Splice global edits into the 223 B state frame and 23 B tail frame.
 
-    Byte offsets from rev_T5_final.syx:
+    Byte offsets confirmed by the 2026-07-20 T7 hardware session (single-edit
+    captures, cross-checked against the original T2/T5/T6 dumps):
       Frame 122 (global state, 223 B):
-        0x08 — operating mode (0=BANK, 1=SONG, 2=REMOTE)
-        0x44 — bank size       (5=0, 1=2; 10/15 still TBD — use best guesses)
-        0x46 — bank style      (FIRST=0, CURNT=1, NONE=2)
-      CAUTION: the 0x44/0x46 attribution is ambiguous — T5 changed bank size,
-      bank style AND SW1/SW2 switch types in one session, and T6's SW3/SW4
-      type edits landed at the adjacent 0x40/0x42 with type-shaped values.
-      0x44/0x46 may therefore be switch-type cells, not bank size/style.
-      Needs the T7 disambiguation capture (docs/REVERSE_ENGINEERING.md §T7)
-      before bank-size write-back can be trusted.
+        0x08 — operating mode: UNCONFIRMED. The original claim (0=BANK,
+          1=SONG, 2=REMOTE) was never reproduced — setting REMOTE in the T7
+          session left this byte untouched and instead changed tail 0x0A.
+          Left as-is pending a clean BANK<->SONG single-edit test (see
+          REVERSE_ENGINEERING.md); may be writing to an inert byte.
+        0x2A..0x46 — Switch Type table, 2 bytes/switch, SW1 at 0x46 counting
+          DOWN to SW15 at 0x2A: offset(SW#) = 0x46 - (SW#-1)*2. Encoding
+          LATCH=0x00, MOMENTARY=0x01, HOLD=0x02. Fully resolved — 5
+          independent single-edit data points, zero contradictions.
+      Bank Size and Bank Style are NOT in this frame — see tail frame below
+      and the CAUTION note.
+
+      CAUTION: `0x44` and `0x46` were previously (wrongly) documented as
+      Bank Size and Bank Style. Both are switch-type cells (SW2 and SW1
+      respectively) — writing bank_size/bank_style through the OLD code
+      path silently corrupted those switches' types. Bank Size has been
+      relocated to the tail frame (below); Bank Style's real location is
+      still unknown and writes are now a documented no-op (see
+      REVERSE_ENGINEERING.md §7 T8 follow-up).
+
       Frame 145 (tail, 23 B):
-        0x08 — PC status       (OFF=0, MAP=2; ON=1 best guess)
+        0x08 — PC status       (OFF=0, ON=1, MAP=2 — all 3 hardware-confirmed)
+        0x0A — possibly Operating Mode (REMOTE=0x02 observed; BANK/SONG
+          values not yet captured) — see the 0x08 caution above.
+        0x0C — Bank Size       (1=0x00, 5=0x01, 10=0x02, 15=0x03) — relocated
+          here from the old (wrong) frame-122 0x44 guess.
         0x10 — remote title number (0-127)
         0x12 — MIDI receive channel - 1 (0-15)
 
     `edits` keys: operating_mode, bank_size, bank_style, remote_title,
-                  midi_rx_channel, pc_status.
+                  midi_rx_channel, pc_status, switch_types (dict of
+                  {sw_number(1-15): 'LATCH'|'MOMENTARY'|'HOLD'}).
     """
-    BANK_SIZE_BYTES = {5: 0x00, 1: 0x02, 10: 0x04, 15: 0x06}   # 10/15 still TBD
-    BANK_STYLE_BYTES = {'FIRST': 0x00, 'CURNT': 0x01, 'NONE': 0x02}
+    BANK_SIZE_BYTES = {1: 0x00, 5: 0x01, 10: 0x02, 15: 0x03}
     OP_MODE_BYTES = {'BANK': 0x00, 'SONG': 0x01, 'REMOTE': 0x02}
     PC_STATUS_BYTES = {'OFF': 0x00, 'ON': 0x01, 'MAP': 0x02}
 
@@ -523,14 +577,20 @@ def encode_globals(global_state_frame, tail_frame, edits):
     if new_state is not None and len(new_state) > 0x46:
         if 'operating_mode' in edits and edits['operating_mode'] in OP_MODE_BYTES:
             new_state[0x08] = OP_MODE_BYTES[edits['operating_mode']]
-        if 'bank_size' in edits and int(edits['bank_size']) in BANK_SIZE_BYTES:
-            new_state[0x44] = BANK_SIZE_BYTES[int(edits['bank_size'])]
-        if 'bank_style' in edits and edits['bank_style'] in BANK_STYLE_BYTES:
-            new_state[0x46] = BANK_STYLE_BYTES[edits['bank_style']]
+        # bank_size / bank_style are intentionally NOT written here anymore —
+        # see the CAUTION note above. bank_size is handled via the tail frame
+        # below; bank_style has no known safe target.
+        if 'switch_types' in edits:
+            for sw_str, type_label in (edits['switch_types'] or {}).items():
+                sw = int(sw_str)
+                if 1 <= sw <= 15 and type_label in SWITCH_TYPE_BYTES:
+                    new_state[_switch_type_offset(sw)] = SWITCH_TYPE_BYTES[type_label]
 
     if new_tail is not None and len(new_tail) > 0x12:
         if 'pc_status' in edits and edits['pc_status'] in PC_STATUS_BYTES:
             new_tail[0x08] = PC_STATUS_BYTES[edits['pc_status']]
+        if 'bank_size' in edits and int(edits['bank_size']) in BANK_SIZE_BYTES:
+            new_tail[0x0C] = BANK_SIZE_BYTES[int(edits['bank_size'])]
         if 'remote_title' in edits:
             new_tail[0x10] = max(0, min(127, int(edits['remote_title']))) & 0x7F
         if 'midi_rx_channel' in edits:
@@ -575,33 +635,35 @@ def encode_name_block(orig_frame, channel_names, switch_names_dict):
 def decode_globals(global_state_frame, tail_frame):
     """Decode the editable globals from frames 122 + tail (frame 145).
 
-    Byte offsets confirmed via rev_T5_final.syx; encoding for some enum
-    values still partial — listed in encode_globals().
+    See encode_globals() for the full offset provenance (T7 session,
+    2026-07-20). bank_style has no known location and always decodes None.
     """
     g = {
         'operating_mode': None, 'operating_mode_byte': None,
         'bank_size': None, 'bank_size_byte': None,
-        'bank_style': None, 'bank_style_byte': None,
+        'bank_style': None,   # location unknown — see encode_globals CAUTION
+        'switch_types': None,
         'pc_status': None, 'pc_status_byte': None,
         'remote_title': None,
         'midi_rx_channel': None,
     }
-    BANK_SIZE_LABELS = {0x00: 5, 0x02: 1, 0x04: 10, 0x06: 15}   # 10/15 best guess
-    BANK_STYLE_LABELS = {0x00: 'FIRST', 0x01: 'CURNT', 0x02: 'NONE'}
+    BANK_SIZE_LABELS = {v: k for k, v in {1: 0x00, 5: 0x01, 10: 0x02, 15: 0x03}.items()}
     OP_MODE_LABELS = {0x00: 'BANK', 0x01: 'SONG', 0x02: 'REMOTE'}
     PC_STATUS_LABELS = {0x00: 'OFF', 0x01: 'ON', 0x02: 'MAP'}
 
     if global_state_frame and len(global_state_frame) > 0x46:
         g['operating_mode_byte'] = global_state_frame[0x08]
         g['operating_mode']      = OP_MODE_LABELS.get(g['operating_mode_byte'])
-        g['bank_size_byte']      = global_state_frame[0x44]
-        g['bank_size']           = BANK_SIZE_LABELS.get(g['bank_size_byte'])
-        g['bank_style_byte']     = global_state_frame[0x46]
-        g['bank_style']          = BANK_STYLE_LABELS.get(g['bank_style_byte'])
+        g['switch_types'] = {
+            sw: SWITCH_TYPE_LABELS.get(global_state_frame[_switch_type_offset(sw)], 'LATCH')
+            for sw in range(1, 16)
+        }
 
     if tail_frame and len(tail_frame) > 0x12:
         g['pc_status_byte']  = tail_frame[0x08]
         g['pc_status']       = PC_STATUS_LABELS.get(g['pc_status_byte'])
+        g['bank_size_byte']  = tail_frame[0x0C]
+        g['bank_size']       = BANK_SIZE_LABELS.get(g['bank_size_byte'])
         g['remote_title']    = tail_frame[0x10]
         rx = tail_frame[0x12]
         # 0..15 = channels 1..16; 16 (0x10) = OMNI (confirmed by rev_T6 — user inadvertently

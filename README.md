@@ -30,9 +30,9 @@ Click any of the 120 presets in the left list to open the workbench:
 ### Globals (Global Config tab)
 
 Editable + write-back to dump:
-- Operating Mode (BANK / SONG / REMOTE)
+- Operating Mode (BANK / SONG / REMOTE) — writes, but on-device effect unconfirmed
 - Bank Size (1, 5, 10, 15)
-- Bank Style (FIRST / CURNT / NONE)
+- Bank Style — **disabled**; the old byte guess turned out to be SW1's switch type
 - MIDI Receive Channel (1-16 + OMNI)
 - Starting Preset Number
 - Remote Title # (0-255)
@@ -44,6 +44,7 @@ Editable + write-back to dump:
 - 16 channel names (CH1-CH16) with custom 4-char labels.
 - 15 switch names (SW1-SW15).
 - 2 pedal names (PED1, PED2).
+- **Switch Type** (LATCH / MOMENTARY / HOLD per switch) — writes to the dump.
 - IA Routing reference table (channel + CC# the *virtual* foot controller transmits per IA switch).
 - **Save names to dump** — splices new names back into the 279 B name block.
 
@@ -75,26 +76,28 @@ A 240 px scrolling text log below the controller captures every PC/CC the editor
 
 ## Reverse-engineering status
 
-After 7 capture/diff cycles (T0-T6), every editable field documented in the manual is decoded. Field-by-field:
+After 8 capture/diff sessions (T0-T7 — the last a 15-dump single-edit-per-capture pass on 2026-07-20), every editable field documented in the manual is decoded, and two long-standing bugs (Bank Size and Bank Style writes silently corrupting switch types) were found and fixed in the process. Field-by-field:
 
 | Field                                       | Decode | Edit | Write-back to device |
 |---------------------------------------------|:------:|:----:|:---:|
 | Preset name (13 chars)                      | ✅ | ✅ | ✅ |
 | 16 PC slots per preset                      | ✅ | ✅ | ✅ |
 | IA on/off bitmap (SW1-15)                   | ✅ | ✅ | ✅ |
-| Custom MIDI (CMD1-CMD5, full type enum)     | ✅ | ✅ | ✅ (layout re-derived offline from the capture corpus; 3 of 18 type codes hardware-observed, rest follow the manual's list order) |
+| Custom MIDI (CMD1-CMD5, full type enum)     | ✅ | ✅ | ✅ (layout re-derived offline from the capture corpus; 4 of 18 type codes hardware-observed, rest follow the manual's list order) |
 | SysEx string (30 bytes) + ON/OFF toggle     | ✅ | ✅ | ✅ |
 | Channel / switch / pedal names (4 chars)    | ✅ | ✅ | ✅ (splice into name block) |
-| Songs (150 songs × 10 preset slots)         | ✅ | ✅ | ✅ |
-| Sets (10 sets × 50 banks → song)            | ✅ | ✅ | ✅ |
+| Songs (150 songs × 10 preset slots)         | ✅ | ✅ | ✅ (no OFF state exists on-device for song slots) |
+| Sets (10 sets × 50 banks → song)            | ✅ | ✅ | ✅ (no OFF state exists on-device for bank slots) |
 | PC Map (incoming PC1..128 → preset, incl. clearing to OFF) | ✅ | ✅ | ✅ |
-| Operating Mode / Bank Size / Bank Style     | ✅ | ✅ | ✅ |
+| Bank Size                                   | ✅ | ✅ | ✅ (relocated to the tail frame — see RE.md) |
+| Switch Type (LATCH/MOM/HOLD per IA)         | ✅ | ✅ | ✅ (fully resolved 2026-07-20; not yet Write-All-tested on hardware) |
+| Operating Mode (BANK/SONG/REMOTE)           | partial | ✅ | ⚠️ writes to a byte whose effect is unconfirmed — see RE.md §Frame 122 |
+| Bank Style (FIRST/CURNT/NONE)               | ⛔ location unknown | ⛔ | ⛔ — old attribution retracted, disabled in the UI to prevent corrupting SW1's switch type |
 | MIDI Receive Channel (incl. OMNI)           | ✅ | ✅ | ✅ |
 | Remote Title Number                         | ✅ | ✅ | ✅ |
 | Program Change Status (OFF/ON/MAP)          | ✅ | ✅ | ✅ |
-| Switch Type (LATCH/MOM/HOLD per IA)         | ✅ | ⛔ | ⛔ — stack-style indexing not pinned |
-| Per-preset PER-PR override block            | partial — slot table + CC#/ON/OFF decoded, channel byte located at 0x40 | ⛔ | ⛔ pending slot-semantics capture |
-| MIDI Filter mask (per type / per channel)   | partial | ⛔ | ⛔ |
+| Per-preset PER-PR override block            | ✅ decode (channel/CC#/ON/OFF all resolved) | ⛔ | ⛔ decode-only for now; write-back is a natural follow-up |
+| MIDI Filter mask (18 message types)         | ✅ message-type cells resolved; 16 per-channel cells unconfirmed | ⛔ | ⛔ |
 | Tail "66 01" before final F7                | confirmed constant — not a checksum | n/a | n/a |
 
 See [docs/REVERSE_ENGINEERING.md](docs/REVERSE_ENGINEERING.md) for the byte-level map.
@@ -114,11 +117,11 @@ The editor streams SysEx straight to expensive hardware and has no auth, so it i
 
 ## Testing
 
-`tools/uat_headless.py` is a 31-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
+`tools/uat_headless.py` is a 44-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
 
 ```bash
 .venv/bin/python tools/uat_headless.py path/to/your-full-dump.syx
-# -> RESULT: 31/31 checks passed
+# -> RESULT: 44/44 checks passed
 ```
 
 (No dump handy? Run it with no argument — it synthesizes a structurally-valid 145-frame dump and runs the same checks.)
@@ -172,11 +175,11 @@ Reports per-frame byte-level diffs with offset clusters — invaluable for furth
 
 ### Reference data
 
-The byte map was reverse-engineered and validated against a real All Access unit over 7 targeted capture/diff cycles (T0–T6). The raw hardware captures are not distributed with the repo — capture your own baseline with **Read All → Save .syx** before editing anything.
+The byte map was reverse-engineered and validated against a real All Access unit over 8 targeted capture/diff sessions (T0–T7). The raw hardware captures are not distributed with the repo — capture your own baseline with **Read All → Save .syx** before editing anything.
 
 ## Acknowledgements
 
-- Reverse-engineered from real hardware bulk dumps plus 7 targeted capture/diff cycles (T0-T6). The 77-page official manual documents features but never publishes the byte-level sysex format — every offset in the byte map came from inspecting actual dumps.
+- Reverse-engineered from real hardware bulk dumps plus 8 targeted capture/diff sessions (T0-T7). The 77-page official manual documents features but never publishes the byte-level sysex format — every offset in the byte map came from inspecting actual dumps.
 - Rocktron's MMA manufacturer ID `00 00 29` confirmed via the dump header.
 - Foot-controller SVG hand-traced from a photo of the device; hit-targets bound to the editor's click handlers.
 

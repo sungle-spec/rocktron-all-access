@@ -97,9 +97,9 @@ The 6 SETUP / MIDI globals from the manual:
 
 | Field | Manual page | Notes |
 |---|---|---|
-| **Bank Mode** | SETUP P1 | BANK / SONG / REMOTE |
+| **Bank Mode** | SETUP P1 | BANK / SONG / REMOTE — writes, but the on-device effect isn't hardware-confirmed yet |
 | **Bank Size** | SETUP P2 | 1, 5, 10, or 15 — determines how many of SW1-15 are preset switches vs IA |
-| **Bank Style** | SETUP P3 | FIRST / CURNT / NONE — recall behaviour on bank up/down |
+| **Bank Style** | SETUP P3 | Editing is disabled — the byte previously assumed for this turned out to be SW1's switch type; the real location is unknown |
 | **MIDI Receive Ch** | MIDI P7 | 1-16, or check OMNI |
 | **Starting Preset #** | SETUP P6 | 0 or 1 — what number the first preset shows as |
 | **Remote Title #** | SETUP P10 | 0-255, used in REMOTE mode |
@@ -116,6 +116,7 @@ Edit the 4-character custom names the device shows on its display:
 - **MIDI Channels (CH1-CH16)** — usually named after the rack gear (`LOOP`, `HEAD`, `DIEZ`, etc.)
 - **Foot Switches (SW1-SW15)** — labels like `VOX1`, `MARS`, `FUZZ`
 - **Pedal Inputs (PED1, PED2)**
+- **Switch Type** (LATCH / MOMENTARY / HOLD, per switch, MIDI P4 on the device) — writes into the dump via **Save switch types to dump**, separate from the names save.
 - **IA Routing** (UI-only) — sets the channel + CC# the *virtual* foot controller transmits when you click an IA switch in the Virtual Foot Controller tab. Doesn't affect the real device.
 
 Click **Save names to dump** to write all names back into the 279-byte name block.
@@ -227,7 +228,7 @@ Full dump time at default pacing: **~11 minutes** (43,647 bytes × 15 ms = 654 s
 
 **Some IA switch LEDs don't light when I click a preset on the Virtual Foot Controller.** With Bank Size = 5, SW1-5 are preset switches and SW6-15 are IAs — the LEDs you see represent IA on/off states. SW6-15 update from the preset's stored bitmap. If a switch has been remapped to a preset slot via Bank Size, it won't show an IA state.
 
-**Switch types (LATCH/MOM/HOLD) aren't editable.** Correct — that's the one editable field still pending reverse engineering. The on-device behaviour applies regardless; you just have to set switch types via SETUP P4 on the front panel.
+**Switch types (LATCH/MOM/HOLD) now editable.** Fully reverse-engineered as of 2026-07-20 — set them in the Channels & Switches tab under **Switch Type** and click **Save switch types to dump**, then **Write All**.
 
 ---
 
@@ -235,10 +236,10 @@ Full dump time at default pacing: **~11 minutes** (43,647 bytes × 15 ms = 654 s
 
 | Feature | Reason |
 |---|---|
-| Per-preset PER-PR overrides for IA channel/CC#/ON/OFF values | Byte layout partially decoded, full mapping pending |
-| Bank Size 10/15 write-back confidence | Bank-size byte attribution is ambiguous in the captures; pending one confirmation dump |
-| Switch type write-back (LATCH/MOM/HOLD) | Storage is stack-style indexed; SW-to-byte mapping not yet pinned |
-| MIDI Filter mask editing (BLOC/MERG per type per channel) | Partial — only the byte mechanics confirmed, full bitmap layout TBD |
+| Per-preset PER-PR overrides for IA channel/CC#/ON/OFF values (UI write) | Byte layout is fully decoded (read-only in the parsed dump); a write-back editor panel hasn't been built yet |
+| Operating Mode (BANK/SONG/REMOTE) — on-device effect | The editor writes it, but hardware testing found the target byte didn't change when switching to REMOTE; unconfirmed whether the write path works at all |
+| Bank Style (FIRST/CURNT/NONE) | The byte previously assumed for this turned out to be SW1's switch type; real location unknown, editing disabled |
+| MIDI Filter mask editing (BLOC/MERG per type per channel) | Message-type cells are resolved; the 16 per-channel cells aren't confirmed yet |
 | Remote dump-request from editor | Not in the All Access protocol — must be initiated from the device |
 | Realtime preset recall pre-edit (commit-to-device-from-edit-only) | Editor-side splice, not on-device — Write All to push |
 
@@ -261,7 +262,7 @@ rocktron-all-access/
 │   ├── MANUAL_SUMMARY.md        Protocol extracts from the manual
 │   └── MIDI_SPEC.md             MIDI Implementation Chart
 └── tools/
-    ├── uat_headless.py          31-check regression harness (no hardware)
+    ├── uat_headless.py          44-check regression harness (no hardware)
     └── diff_dumps.py            Frame-aligned dump diff helper
 ```
 

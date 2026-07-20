@@ -177,6 +177,18 @@ def run(buf):
     check("no collateral byte changes", not other,
           f"unexpected {[hex(o) for o in other]}")
 
+    # UAT-1.25: PER-PR slot table defaults + formula
+    print("\n[UAT-1.25  PER-PR slot table — defaults + chanid formula]")
+    _, _, pr1_frame = preset_frame_bytes(buf, 1)
+    slots = aa.parse_preset_frame(1, pr1_frame)["per_pr_slots"]
+    check("17 slots decoded", len(slots) == 17, f"got {len(slots)}")
+    sw9 = next(s for s in slots if s["chanid"] == 9)
+    ped1 = next(s for s in slots if s["chanid"] == 17)
+    check("chanid 9 labelled SW9", sw9["label"] == "SW9")
+    check("chanid 17 labelled PED1", ped1["label"] == "PED1")
+    check("SW9 slot offset formula (0x40+(17-9)*8=0x80)",
+          aa.PER_PR_TABLE_BASE + (17 - 9) * aa.PER_PR_SLOT_STRIDE == 0x80)
+
     # UAT-1.3: IA bitmap reversed-bit encode matches RE doc's worked example
     print("\n[UAT-1.3  IA bitmap reversed-bit encoding]")
     bits = [False] * 15
@@ -246,10 +258,45 @@ def run(buf):
     si = next(i for i, (_, ln) in enumerate(frames) if ln == aa.GLOBAL_STATE_FRAME_LEN)
     ti = next(i for i, (_, ln) in enumerate(frames) if ln == aa.TAIL_FRAME_LEN)
     so, sn = frames[si]; to, tn = frames[ti]
-    ns, nt = aa.encode_globals(buf[so:so + sn], buf[to:to + tn],
+    state_orig, tail_orig = buf[so:so + sn], buf[to:to + tn]
+    ns, nt = aa.encode_globals(state_orig, tail_orig,
                                {"operating_mode": "SONG", "midi_rx_channel": "OMNI"})
     check("operating_mode SONG -> 0x08 == 0x01", ns[0x08] == 0x01)
     check("OMNI -> tail 0x12 == 0x10", nt[0x12] == 0x10)
+
+    # UAT-2.2 / REGRESSION: bank size lives in the tail frame, not globals
+    # 0x44 (that byte is SW2's switch-type cell — see UAT-2.4)
+    print("\n[UAT-2.2  bank size — tail frame, not globals 0x44]")
+    ns2, nt2 = aa.encode_globals(state_orig, tail_orig, {"bank_size": 15})
+    check("bank_size 15 -> tail 0x0C == 0x03", nt2[0x0C] == 0x03,
+          f"got {hex(nt2[0x0C])}")
+    check("bank_size write does not touch globals frame", ns2 == state_orig)
+    g = aa.decode_globals(ns2, nt2)
+    check("decode_globals reports bank_size 15", g["bank_size"] == 15)
+
+    # UAT-2.3 / REGRESSION: bank_style is a documented no-op — it must NOT
+    # touch 0x46 (proven to be SW1's switch type; this used to be a live
+    # data-corruption bug).
+    print("\n[UAT-2.3  REGRESSION  bank_style no-op — must not corrupt SW1]")
+    ns3, nt3 = aa.encode_globals(state_orig, tail_orig, {"bank_style": "CURNT"})
+    check("bank_style write is a no-op (0x46 untouched)", ns3 == state_orig,
+          f"0x46 became {hex(ns3[0x46])}, was {hex(state_orig[0x46])}")
+    g3 = aa.decode_globals(ns3, tail_orig)
+    check("decode_globals reports bank_style as None (location unknown)",
+          g3["bank_style"] is None)
+
+    # UAT-2.4: switch-type table round-trip, confirmed formula/encoding
+    print("\n[UAT-2.4  switch types — linear table, LATCH/MOM/HOLD=0/1/2]")
+    ns4, _ = aa.encode_globals(state_orig, tail_orig,
+                               {"switch_types": {"1": "MOMENTARY", "5": "HOLD"}})
+    check("SW1 -> MOMENTARY at 0x46", ns4[0x46] == 0x01, f"got {hex(ns4[0x46])}")
+    check("SW5 -> HOLD at 0x3E", ns4[0x3E] == 0x02, f"got {hex(ns4[0x3E])}")
+    touched = [i for i in range(len(state_orig)) if state_orig[i] != ns4[i]]
+    check("switch-type write touches only the two target bytes",
+          set(touched) == {0x46, 0x3E}, f"touched {[hex(t) for t in touched]}")
+    g4 = aa.decode_globals(ns4, tail_orig)
+    check("decode_globals round-trips SW1/SW5", g4["switch_types"][1] == "MOMENTARY"
+          and g4["switch_types"][5] == "HOLD")
 
     # UAT-4.1 / UAT-5.1: song & set encode land at offset 0x06, 2-byte stride
     print("\n[UAT-4.1 / 5.1  songs & sets]")

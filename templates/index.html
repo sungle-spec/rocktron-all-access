@@ -522,7 +522,10 @@
         <select id="g-bank-size"><option>1</option><option>5</option><option>10</option><option>15</option></select>
       </td></tr>
       <tr><th>Bank Style (P3)</th><td>
-        <select id="g-bank-style"><option>FIRST</option><option>CURNT</option><option>NONE</option></select>
+        <select id="g-bank-style" disabled><option>FIRST</option><option>CURNT</option><option>NONE</option></select>
+        <span class="hint" style="font-size:9px;">byte location unknown — the
+          earlier guess (0x46) turned out to be SW1's switch type; editing
+          disabled until a hardware capture pins the real offset.</span>
       </td></tr>
       <tr><th>MIDI Receive Ch (MIDI P7)</th><td>
         <input type="number" id="g-rx-ch" min="1" max="16" value="1">
@@ -642,6 +645,16 @@
   <div class="panel">
     <h3>Foot Switches — custom names (SW1–SW15)</h3>
     <div class="switch-grid" id="switch-names-grid"></div>
+  </div>
+  <div class="panel">
+    <h3>Switch Type (MIDI P4) — LATCH / MOMENTARY / HOLD per switch</h3>
+    <div class="switch-grid" id="switch-type-grid"></div>
+    <div style="margin-top:10px">
+      <button class="primary" onclick="saveSwitchTypesToDump()">Save switch types to dump</button>
+      <span class="hint" style="font-size:9px;">Confirmed 2026-07-20 via
+        hardware capture (5 independent single-edit tests, zero
+        contradictions). Use Write All afterwards to push to the device.</span>
+    </div>
   </div>
   <div class="panel">
     <h3>IA Routing (SW6–SW15) — channel + CC# the virtual switch transmits</h3>
@@ -1028,18 +1041,18 @@
       <li><b>Sets</b> — all 10 sets, 50 banks → song mapping each.</li>
       <li><b>PC Map</b> — 128 incoming PC → preset slots.</li>
       <li><b>Channel / switch / pedal names</b> — 4-char custom names spliced into the name block.</li>
-      <li><b>Globals</b> — Operating Mode, Bank Size, Bank Style, MIDI Receive Channel
+      <li><b>Switch Type</b> — LATCH / MOMENTARY / HOLD per switch.</li>
+      <li><b>Globals</b> — Operating Mode, Bank Size, MIDI Receive Channel
           (incl. OMNI), Starting Preset, Remote Title, Program Change Status.</li>
     </ul>
 
     <h3 style="margin-top:18px;">What's read-only / partial</h3>
     <ul>
-      <li><b>Switch type</b> (LATCH/MOM/HOLD per IA switch) — encoding decoded but
-          slot indexing scheme is stack-style and not fully mapped, so it's
-          hidden from the UI for safety.</li>
-      <li><b>Per-preset PER-PR override block</b> — partial; UI not wired yet.</li>
-      <li><b>MIDI filter mask</b> — single bit-edit confirmed, full bitmap
-          layout not yet decoded.</li>
+      <li><b>Per-preset PER-PR override block</b> — fully decoded, but no write UI yet.</li>
+      <li><b>Bank Style</b> — real byte location unknown (the old guess was
+          actually SW1's switch type); editing disabled.</li>
+      <li><b>MIDI filter mask</b> — the 18 message-type cells are resolved;
+          the 16 per-channel cells aren't confirmed.</li>
     </ul>
 
     <h3 style="margin-top:18px;">Workflow</h3>
@@ -1259,7 +1272,8 @@ function applyDumpGlobalsToUI() {
   const g = state.globals;
   if (g.operating_mode) $('g-bank-mode').value = g.operating_mode;
   if (g.bank_size != null) $('g-bank-size').value = String(g.bank_size);
-  if (g.bank_style) $('g-bank-style').value = g.bank_style;
+  // bank_style is always null (location unknown) — dropdown stays disabled.
+  renderSwitchTypes(g.switch_types);
   if (g.midi_rx_channel === 'OMNI') {
     $('g-rx-omni').checked = true;
     $('g-rx-ch').disabled = true;
@@ -1453,11 +1467,43 @@ async function loadPacing() {
 }
 
 // ── Globals: write back to dump ────────────────────────────────────────
+const SWITCH_TYPE_OPTIONS = ['LATCH', 'MOMENTARY', 'HOLD'];
+function renderSwitchTypes(types) {
+  const grid = $('switch-type-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (let sw = 1; sw <= 15; sw++) {
+    const cur = (types && types[sw]) || 'LATCH';
+    const cell = document.createElement('div');
+    cell.className = 'sw-card';
+    const opts = SWITCH_TYPE_OPTIONS.map(o =>
+      `<option ${o === cur ? 'selected' : ''}>${o}</option>`).join('');
+    cell.innerHTML = `<div class="n">SW${sw}</div>
+      <select data-sw="${sw}">${opts}</select>`;
+    grid.appendChild(cell);
+  }
+}
+async function saveSwitchTypesToDump() {
+  const switch_types = {};
+  document.querySelectorAll('#switch-type-grid [data-sw]').forEach(sel => {
+    switch_types[sel.dataset.sw] = sel.value;
+  });
+  const r = await fetch('/api/dump-globals', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({switch_types}),
+  }).then(r=>r.json());
+  if (!r.ok) { toast('Switch type save failed: ' + (r.error||''), true); return; }
+  state.globals = r.globals;
+  renderSwitchTypes(r.globals.switch_types);
+  toast('Switch types saved to dump');
+}
+
 async function saveGlobalToDump() {
   const body = {
     operating_mode: $('g-bank-mode').value,
     bank_size: parseInt($('g-bank-size').value, 10),
-    bank_style: $('g-bank-style').value,
+    // bank_style omitted — location unknown, server ignores it anyway (see
+    // the disabled dropdown's hint).
     midi_rx_channel: $('g-rx-omni').checked ? 'OMNI' : parseInt($('g-rx-ch').value, 10),
   };
   const rt = $('g-remote-title');
