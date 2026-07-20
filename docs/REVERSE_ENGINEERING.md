@@ -379,7 +379,18 @@ Confirmed bytes:
 0x08, 0x0C = MIDI Filter bits  (0x01 default = MERG, 0x00 = BLOC)
 ```
 
-T3 set CC on CH2 = BLOC and Note-On on CH5 = BLOC, and frame 123 had two new bit flips at `0x08` and `0x0C` (4-byte stride). The full filter map is presumably (16 channels + 1 globals row) × N message types arranged in this 139-byte block.
+T3's notes say "CC on CH2 = BLOC and Note-On on CH5 = BLOC" produced flips at
+`0x08` and `0x0C` — but a T7-session device check (photo of SETUP P7) shows
+the filtering page has **no channel field at all**: two fields only,
+`<msg type> <bloc/merg>`. Filtering is per message type, device-wide.
+
+**Working model (to be confirmed by T7 items 4a-4c):** one 2-byte cell per
+message type from `0x06`, in the manual's list order — the same enum as the
+CMD types. That re-reads T3's flips as `0x08` = NOTE ON (index 1) and
+`0x0C` = CTR CHANGE (index 3); the "channels" in T3's notes never existed on
+the page. Predicted cells: NOTE OFF `0x06`, NOTE ON `0x08`, KPRS `0x0A`,
+CTR CHANGE `0x0C`, PROG CHANGE `0x0E`, … The Starting-Preset table
+(`0x6A` = CH1) is a separate region later in the same frame.
 
 ### Frames 124..133 (10 × 457 B) — SONGS ✅ (correcting earlier guess)
 
