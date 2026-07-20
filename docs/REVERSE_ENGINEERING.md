@@ -184,10 +184,15 @@ The editor decodes this table read-only (`per_pr_slots` in each preset's parsed 
 0x0C SYSRS   0x0D M T C>  0x0E SGPP>   0x0F SGSL>   0x10 T REQ   0x11 NONE
 ```
 
-`N ON>`=0x01, `C CH>`=0x03 and `NONE`=0x11 are hardware-observed; the other
-15 codes are inferred from the list order (three anchors land exactly on
-their list positions, including NONE at 17 — the `0x11` "default marker"
-seen at every unset slot).
+This is the manual's **CUSTOM P1 command list, in its exact printed order**
+(verified against `reference/rocktron-manual.pdf` p.62). Four codes are
+hardware-observed — `N ON>`=0x01, `KPRS>`=0x02, `C CH>`=0x03, `NONE`=0x11 —
+and all four sit exactly on their list index, including both endpoints
+(index 1 and the terminal NONE at 17, the `0x11` "default marker" seen at
+every unset slot). The intermediate codes follow the same documented list,
+so `stored byte = CUSTOM P1 list index`. (Note: the MIDI *filter* page uses
+a different list order — see the Filter section — so don't cross-map the
+two.)
 
 **Evidence (all three lines of it agree):**
 
@@ -324,7 +329,8 @@ resolved it completely: **`0x44` and `0x46` are switch-type cells (SW2 and
 SW1)** — see the Switch Type section below. Bank Size actually lives in the
 **tail frame** (§ Frame 144 below); **Bank Style's real location is still
 unknown** — the old "FIRST/CURNT/NONE" claim was misread from T5's compound
-edit and is now retracted. This was a real bug: the app's write path used to
+edit and is now retracted. (Note the manual's Bank Style values are actually
+**FIRST / CURNT / OFF**, not "NONE".) This was a real bug: the app's write path used to
 silently corrupt SW1/SW2's switch type whenever Bank Size or Bank Style was
 saved. Fixed in `app.py::encode_globals` (bank_style writes are now a
 documented no-op; bank_size targets the tail frame).
@@ -414,10 +420,10 @@ Note this order is the **standard MIDI status-byte order** (channel voice →
 sysex → system common → system realtime), and it **differs** from the
 Custom-MIDI-command list (CUSTOM P1) after the first 7 entries — the two
 pages share NOFF/NON/KPRS/CCH/PCH/CPRS/PBEN (indices 0-6) but diverge from
-index 7 onward (filter goes SysEx→MTC→…; CUSTOM P1 goes T CLK→START→…). This
-means the CMD-type enum's indices 7-16 (see the Custom MIDI section) can no
-longer be assumed to share ordering with anything else — they remain
-genuinely unconfirmed beyond the 4 hardware-observed anchors.
+index 7 onward (filter goes SysEx→MTC→…; CUSTOM P1 goes T CLK→START→…). These
+are **two independent lists**: the filter cells use this filter-page order,
+while the CMD-type byte uses the **CUSTOM P1 list order** (documented in the
+manual — see the Custom MIDI section). Don't cross-map them.
 
 **Formula (confirmed):** `offset(type_index) = 0x06 + type_index * 2` for
 the first 18 entries (message types), using the list order above.
@@ -444,7 +450,12 @@ this document.
 
 Earlier guess had the song/set assignment swapped. **The 457 B frames hold SONGS, the 107 B frames hold SETS** (confirmed by T4 — see frame 134..143 below).
 
-Each 457 B frame holds **15 songs**, each song = **30 bytes** (= 10 preset slots × 2 bytes value + 10 bytes overhead). Confirmed from `rev_T3_songs.syx`:
+Each 457 B frame holds **15 songs**, each song = **30 bytes** = **15 preset
+slots × 2 bytes**, no overhead. (A song is one bank's worth of presets, and
+max Bank Size is 15 — the manual's Song Create page assigns to `SW1-15`. An
+earlier draft said "10 slots + 10 overhead"; that was wrong — the baseline's
+own SONG1 stores 15 valid preset indices, and the decoder now reads all 15.)
+Confirmed from `rev_T3_songs.syx`:
 
 Frame 125, SONG1 set to `[PR50, PR60, PR70, PR80, PR90]`:
 
@@ -465,15 +476,17 @@ SONG2 set to `[PR1, PR2, PR3, PR4, PR5]` starts at offset `0x24` (= `0x06 + 30`)
 0x2A = 0x03 (PR4-1)   slot 4
 ```
 
-So SONG stride = 30 bytes; presets stored as `(preset_index, ?)` pairs at 2-byte stride. 15 songs × 30 bytes = 450 bytes data + 7 bytes header/padding = 457 ✓. 10 frames × 15 songs = **150 songs** total ✓ (matches manual).
+So SONG stride = 30 bytes; presets stored as `(preset_index, 0x00)` pairs at 2-byte stride, 15 slots each. 15 songs × 30 bytes = 450 bytes data + 7 bytes header/padding = 457 ✓. 10 frames × 15 songs = **150 songs** total ✓ (matches manual).
 
-**No OFF state (confirmed 2026-07-20).** T7 item 7 attempted to set a song
-slot to OFF via the front panel and found no such option — the SONG editing
-page only cycles through valid preset numbers (`SG1 SW1 PR4`-style display),
-with no `OFF`/blank entry in the cycle. This matches the earlier offline
-finding that every song slot in the baseline dump held a valid preset index;
-there is no OFF-marker convention for songs (unlike the PC-map, which does
-expose `OFF`). Every song slot must always reference a real preset.
+**No OFF state (confirmed by the manual + hardware).** The manual's Song
+Create page (SONG/SET P2, p.56) offers three fields only — `SONG1-150 /
+SW1-15 / PR1-120` — the preset field cycles `PR1-120` with **no OFF option**.
+On the device the page shows `SG1 SW1 PR4`-style, and there is no `OFF`/blank
+entry to select (which is exactly why the T7 attempt to "set a slot to OFF"
+was impossible). This matches the baseline dump, where every song slot holds
+a valid preset index. There is no OFF-marker convention for songs (unlike the
+PC-map, which does expose `OFF`) — every song slot always references a real
+preset.
 
 ### Frames 134..143 (10 × 107 B) — SETS ✅
 
@@ -496,10 +509,10 @@ frames). There is no off-by-one and no header frame — `SET n` = the n-th
 107-byte frame, slot value = song# − 1. The earlier "frame 135" observation
 was a frame-counting slip (1-based vs 0-based).
 
-**No OFF state (confirmed 2026-07-20).** Same finding as songs above — the
-SET/bank assignment page (`set2 bk1 sg1`-style display) only cycles through
-valid song numbers, no OFF option. Every bank slot must reference a real
-song.
+**No OFF state (manual + hardware).** Same as songs — Set Create (SONG/SET
+P3, p.58) offers `SET1-10 / BK1-50 / SONG1-150`; the song field cycles
+`SONG1-150` with no OFF option (device shows `set2 bk1 sg1`-style). Every
+bank slot must reference a real song.
 
 ### Frame 144 (23 B) — tail / global config block ✅ revised after T7 (2026-07-20)
 
@@ -543,7 +556,7 @@ These came up while wiring the editor, useful to know when interpreting MIDI tra
 - **No remote dump request.** The All Access has no documented MIDI message that asks it to send a bulk dump. The only way to capture a dump is to initiate it from the front panel (`SYSX → DUMP → CTR STORE`). The editor's "Read All" therefore arms a passive capture and waits.
 - **⚠️ REMOTE mode destabilizes the CUSTOM MIDI page.** Discovered during the T7 session (2026-07-20): with Operating Mode set to REMOTE, the CUSTOM MIDI editing page (`2ND → CUSTOM`) worked for exactly one edit and then became unresponsive on any further edit, requiring a power cycle. Revert Operating Mode to BANK before doing any Custom MIDI work on the device. (This may be related to the still-unresolved Operating Mode byte discrepancy above — REMOTE mode changes preset addressing, and CUSTOM P1's preset-select field may not handle that correctly in this firmware.)
 - **A "recall preset" step in a procedure can silently fail.** T2.D's steps said "recall PR3" before configuring PER-PR values, but the resulting bytes landed on PR1 — the recall didn't take, and CTR STORE saved onto whichever preset was actually active. Always confirm the LCD shows the intended preset immediately before CTR STORE, especially after a bank-size change (which remaps which physical switches are preset switches).
-- **Song and Set assignment pages have no OFF state.** Unlike the PC-map (which does support `OFF` to unmap a PC), the SONG page (preset-per-slot) and SET page (song-per-bank) only cycle through valid targets — there's no way to leave a slot unassigned from the front panel.
+- **Song and Set assignment pages have no OFF state** (manual SONG/SET P2/P3, pp.56-58). Unlike the PC-map (which does support `OFF` to unmap a PC), Song Create (`PR1-120`) and Set Create (`SONG1-150`) only cycle through valid targets — there's no way to leave a slot unassigned from the front panel. A song has 15 preset slots (SW1-15); only the first Bank-Size are active but all 15 are stored.
 
 ## 7. T7 — completed 2026-07-20; T8 follow-up remains
 
@@ -569,7 +582,7 @@ location (globals frame, `offset=0x12+SW#*2`).
 | # | Item | Device steps | What it settles |
 |---|------|--------------|------------------|
 | T8.1 | Operating Mode's real byte(s) | With Operating Mode **currently BANK**, change to SONG only (no other edits), dump. Change SONG→REMOTE, dump. | Does frame-122 `0x08` ever change? Does tail `0x0A` change for SONG too, or only for REMOTE? Resolves the discrepancy flagged in the Frame 122 and Frame 144 sections above. |
-| T8.2 | Bank Style's real location | With Operating Mode back in BANK (see the REMOTE/CUSTOM quirk — unrelated but good hygiene), cycle Bank Style FIRST→CURNT→NONE as the *only* edit each time (3 dumps). | Bank Style's actual byte, now that `0x46` is proven to be SW1's switch type. |
+| T8.2 | Bank Style's real location | With Operating Mode back in BANK (see the REMOTE/CUSTOM quirk — unrelated but good hygiene), cycle Bank Style FIRST→CURNT→OFF as the *only* edit each time (3 dumps). | Bank Style's actual byte, now that `0x46` is proven to be SW1's switch type. |
 | T8.3 | Write-path validation | With T8.1/T8.2 resolved (or using current code as-is), use the **editor** to write Bank Size, Switch Type, and Operating Mode via Write All, then Read All and verify. | First real test of whether these write paths take effect on hardware — everything above was Read-All-only. |
 
 Method: **Save .syx** baseline first; after each single edit press CTR STORE,

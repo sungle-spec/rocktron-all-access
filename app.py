@@ -437,10 +437,16 @@ def decode_pc_map(frame):
     return out
 
 
+SONG_SLOTS = 15   # SW1..SW15 — a song holds one bank's worth of presets, and
+                  # max Bank Size is 15 (manual: Song Create assigns SW1-15).
+                  # 30 B/song = 15 slots × 2 B, no overhead. Only the first
+                  # Bank-Size slots are "active" on the device, but all 15 are
+                  # stored, so all 15 are decoded/editable.
+
 def decode_songs(song_frames):
     """Decode the 10 song frames (457 B each) into 150 songs.
 
-    Each frame holds 15 songs at 30-byte stride. Each song has 10 preset
+    Each frame holds 15 songs at 30-byte stride. Each song has 15 preset
     slots (2 bytes each, value = preset_index = preset_num - 1).
     """
     songs = []
@@ -448,7 +454,7 @@ def decode_songs(song_frames):
         for s in range(15):
             base = 6 + s * 30
             slots = []
-            for k in range(10):
+            for k in range(SONG_SLOTS):
                 off = base + k * 2
                 if off + 1 >= len(frame):
                     slots.append(None)
@@ -496,14 +502,14 @@ def encode_pc_map(orig_frame, pc_map):
 
 
 def encode_song(orig_frame, song_pos, slots):
-    """Splice a single song's 10 preset slots into a 457 B song frame.
+    """Splice a single song's 15 preset slots into a 457 B song frame.
 
     song_pos = 0..14 (which song within this frame)
-    slots = list of up to 10 preset_indices (0..119) or None
+    slots = list of up to 15 preset_indices (0..119) or None
     """
     out = bytearray(orig_frame)
     base = 6 + song_pos * 30
-    for k, v in enumerate(slots[:10]):
+    for k, v in enumerate(slots[:SONG_SLOTS]):
         if v is None:
             continue
         out[base + k * 2] = max(0, min(119, int(v))) & 0x7F
@@ -1340,7 +1346,7 @@ def _splice_set_frame(set_idx, new_bytes):
 def song_save(num):
     """Update one song's preset slot list.
 
-    Body: {"slots": [preset_num or null, ...]}   (up to 10 slots)
+    Body: {"slots": [preset_num or null, ...]}   (up to 15 slots, SW1-15)
     """
     if not (1 <= num <= 150):
         return jsonify({'ok': False, 'error': 'song out of range'}), 400

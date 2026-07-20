@@ -306,6 +306,18 @@ def run(buf):
     song = aa.encode_song(buf[so:so + sn], 0, [49, 59, 69, 79, 89])
     check("song slot1 == PR50 index (0x31)", song[6] == 0x31, f"got {hex(song[6])}")
     check("song slot2 == PR60 index (0x3B)", song[8] == 0x3B, f"got {hex(song[8])}")
+
+    # UAT-4.2: songs have 15 slots (SW1-15), not 10 — decode + encode reach slot 15
+    print("\n[UAT-4.2  song 15-slot coverage]")
+    parsed_songs = aa.parse_dump(buf)["songs"]
+    check("decode yields 15 slots per song", len(parsed_songs[0]["slots"]) == 15,
+          f"got {len(parsed_songs[0]['slots'])}")
+    song15 = aa.encode_song(buf[so:so + sn], 0, [None] * 14 + [41])  # SW15 -> PR42
+    check("encode SW15 lands at 0x22 (0x06+14*2)", song15[6 + 14 * 2] == 41,
+          f"got {hex(song15[6 + 14 * 2])}")
+    only = [i for i in range(sn) if buf[so + i] != song15[i]]
+    check("SW15 write touches only its slot byte", only == [6 + 14 * 2],
+          f"touched {[hex(o) for o in only]}")
     set_fi = [i for i, (_, ln) in enumerate(frames) if ln == aa.SET_FRAME_LEN][0]
     eo, en = frames[set_fi]
     st = aa.encode_set(buf[eo:eo + en], [2, 3, 4])

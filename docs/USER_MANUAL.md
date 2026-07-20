@@ -123,10 +123,10 @@ Click **Save names to dump** to write all names back into the 279-byte name bloc
 
 ### 4.4 Songs
 
-Each song is a custom bank of presets. With Bank Size = 5, only 5 preset slots per song are used by the device; with Bank Size = 10, all 10 slots are active. The editor exposes all 10 slots since they're stored regardless.
+Each song is a custom bank of presets (SW1-15). The device uses only the first Bank-Size slots (5 at Bank Size 5, 15 at Bank Size 15), but all 15 are stored, so the editor exposes all 15. Inactive slots are dimmed.
 
 1. Pick a song from the **Song** dropdown (1-150).
-2. For each of the 10 slots, pick a preset (or `— off —`).
+2. For each of the 15 slots (SW1-15), pick a preset.
 3. Click **Save song**.
 
 ### 4.5 Sets
@@ -191,7 +191,7 @@ Quick reference of capabilities + workflow + documentation pointers.
 
 1. Go to the **Songs** tab.
 2. Pick the song from the dropdown.
-3. For each of the 10 slots, pick the preset you want.
+3. For each active slot (SW1-15), pick the preset you want.
 4. Click **Save song**.
 5. **Write All** when ready.
 
@@ -238,7 +238,7 @@ Full dump time at default pacing: **~11 minutes** (43,647 bytes × 15 ms = 654 s
 |---|---|
 | Per-preset PER-PR overrides for IA channel/CC#/ON/OFF values (UI write) | Byte layout is fully decoded (read-only in the parsed dump); a write-back editor panel hasn't been built yet |
 | Operating Mode (BANK/SONG/REMOTE) — on-device effect | The editor writes it, but hardware testing found the target byte didn't change when switching to REMOTE; unconfirmed whether the write path works at all |
-| Bank Style (FIRST/CURNT/NONE) | The byte previously assumed for this turned out to be SW1's switch type; real location unknown, editing disabled |
+| Bank Style (FIRST/CURNT/OFF) | The byte previously assumed for this turned out to be SW1's switch type; real location unknown, editing disabled |
 | MIDI Filter mask editing (BLOC/MERG per type per channel) | Message-type cells are resolved; the 16 per-channel cells aren't confirmed yet |
 | Remote dump-request from editor | Not in the All Access protocol — must be initiated from the device |
 | Realtime preset recall pre-edit (commit-to-device-from-edit-only) | Editor-side splice, not on-device — Write All to push |
@@ -262,7 +262,7 @@ rocktron-all-access/
 │   ├── MANUAL_SUMMARY.md        Protocol extracts from the manual
 │   └── MIDI_SPEC.md             MIDI Implementation Chart
 └── tools/
-    ├── uat_headless.py          44-check regression harness (no hardware)
+    ├── uat_headless.py          47-check regression harness (no hardware)
     └── diff_dumps.py            Frame-aligned dump diff helper
 ```
 

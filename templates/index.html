@@ -522,7 +522,7 @@
         <select id="g-bank-size"><option>1</option><option>5</option><option>10</option><option>15</option></select>
       </td></tr>
       <tr><th>Bank Style (P3)</th><td>
-        <select id="g-bank-style" disabled><option>FIRST</option><option>CURNT</option><option>NONE</option></select>
+        <select id="g-bank-style" disabled><option>FIRST</option><option>CURNT</option><option>OFF</option></select>
         <span class="hint" style="font-size:9px;">byte location unknown — the
           earlier guess (0x46) turned out to be SW1's switch type; editing
           disabled until a hardware capture pins the real offset.</span>
@@ -585,8 +585,8 @@
         <select id="songs-pick" onchange="renderSong()" style="min-width:80px"></select>
       </label>
       <span style="color:var(--mute);font-size:11px;">
-        Each song = 1 bank. With Bank Size = 5, only slots 1–5 are active on the device;
-        the editor exposes all 10 slots since they're stored regardless.
+        Each song = 1 bank of presets (SW1–SW15). Only the first Bank-Size slots are
+        active on the device; the editor exposes all 15 since they're stored regardless.
       </span>
     </div>
     <table class="kv" id="song-slots" style="margin-top:8px"></table>
@@ -1037,7 +1037,7 @@
       <li><b>Instant-access on/off bitmap</b> — all 15 SWs (SW1-15), saved per preset via CTR STORE.</li>
       <li><b>Custom MIDI commands</b> — all 5 CMD slots per preset, full 18-type list.</li>
       <li><b>SysEx string</b> — 30 bytes per preset + ON/OFF toggle.</li>
-      <li><b>Songs</b> — all 150 songs, 10 preset slots each.</li>
+      <li><b>Songs</b> — all 150 songs, 15 preset slots each (SW1-15).</li>
       <li><b>Sets</b> — all 10 sets, 50 banks → song mapping each.</li>
       <li><b>PC Map</b> — 128 incoming PC → preset slots.</li>
       <li><b>Channel / switch / pedal names</b> — 4-char custom names spliced into the name block.</li>
@@ -1313,12 +1313,17 @@ function renderSong() {
   const song = (state.songs || []).find(s => s.idx === num);
   const tbl = $('song-slots');
   if (!song) { tbl.innerHTML = '<tr><td>No song data</td></tr>'; return; }
+  // A song stores 15 preset slots (SW1-SW15); only the first Bank-Size are
+  // "active" on the device, but all 15 are stored, so show them all.
+  const active = (state.globals && state.globals.bank_size) || 15;
   let html = '';
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     const v = song.slots[i];
     const presetNum = v == null ? null : v + 1;
-    html += `<tr><th style="width:80px">Slot ${i+1}</th><td>
-      <select data-song-slot="${i}">${presetOptionList(presetNum)}</select>
+    const dim = i >= active ? ' style="opacity:.5"' : '';
+    const note = i >= active ? ' <span class="hint" style="font-size:9px">(inactive at Bank Size '+active+')</span>' : '';
+    html += `<tr${dim}><th style="width:80px">SW${i+1}</th><td>
+      <select data-song-slot="${i}">${presetOptionList(presetNum)}</select>${note}
     </td></tr>`;
   }
   tbl.innerHTML = html;

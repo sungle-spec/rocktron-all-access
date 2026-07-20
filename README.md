@@ -50,7 +50,7 @@ Editable + write-back to dump:
 
 ### Songs / Sets / PC Map tabs
 
-- **Songs** — pick from 150 songs, edit each song's 10 preset slots.
+- **Songs** — pick from 150 songs, edit each song's 15 preset slots (SW1-15).
 - **Sets** — pick from 10 sets, assign one of the 150 songs to each of the 50 banks.
 - **PC Map** — 128-row table mapping incoming PC# → preset (for use when MIDI P5 = MAP).
 
@@ -86,13 +86,13 @@ After 8 capture/diff sessions (T0-T7 — the last a 15-dump single-edit-per-capt
 | Custom MIDI (CMD1-CMD5, full type enum)     | ✅ | ✅ | ✅ (layout re-derived offline from the capture corpus; 4 of 18 type codes hardware-observed, rest follow the manual's list order) |
 | SysEx string (30 bytes) + ON/OFF toggle     | ✅ | ✅ | ✅ |
 | Channel / switch / pedal names (4 chars)    | ✅ | ✅ | ✅ (splice into name block) |
-| Songs (150 songs × 10 preset slots)         | ✅ | ✅ | ✅ (no OFF state exists on-device for song slots) |
+| Songs (150 songs × 15 preset slots)         | ✅ | ✅ | ✅ (no OFF state exists on-device for song slots) |
 | Sets (10 sets × 50 banks → song)            | ✅ | ✅ | ✅ (no OFF state exists on-device for bank slots) |
 | PC Map (incoming PC1..128 → preset, incl. clearing to OFF) | ✅ | ✅ | ✅ |
 | Bank Size                                   | ✅ | ✅ | ✅ (relocated to the tail frame — see RE.md) |
 | Switch Type (LATCH/MOM/HOLD per IA)         | ✅ | ✅ | ✅ (fully resolved 2026-07-20; not yet Write-All-tested on hardware) |
 | Operating Mode (BANK/SONG/REMOTE)           | partial | ✅ | ⚠️ writes to a byte whose effect is unconfirmed — see RE.md §Frame 122 |
-| Bank Style (FIRST/CURNT/NONE)               | ⛔ location unknown | ⛔ | ⛔ — old attribution retracted, disabled in the UI to prevent corrupting SW1's switch type |
+| Bank Style (FIRST/CURNT/OFF)                | ⛔ location unknown | ⛔ | ⛔ — old attribution retracted, disabled in the UI to prevent corrupting SW1's switch type |
 | MIDI Receive Channel (incl. OMNI)           | ✅ | ✅ | ✅ |
 | Remote Title Number                         | ✅ | ✅ | ✅ |
 | Program Change Status (OFF/ON/MAP)          | ✅ | ✅ | ✅ |
@@ -117,11 +117,11 @@ The editor streams SysEx straight to expensive hardware and has no auth, so it i
 
 ## Testing
 
-`tools/uat_headless.py` is a 44-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
+`tools/uat_headless.py` is a 47-check regression harness that imports `app.py`'s real parse/encode functions and exercises every editing endpoint as a byte-level file round-trip. **No hardware, no browser, no server required.** Wire it into CI.
 
 ```bash
 .venv/bin/python tools/uat_headless.py path/to/your-full-dump.syx
-# -> RESULT: 44/44 checks passed
+# -> RESULT: 47/47 checks passed
 ```
 
 (No dump handy? Run it with no argument — it synthesizes a structurally-valid 145-frame dump and runs the same checks.)
