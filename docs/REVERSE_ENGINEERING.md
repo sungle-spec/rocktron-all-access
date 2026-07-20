@@ -557,6 +557,7 @@ These came up while wiring the editor, useful to know when interpreting MIDI tra
 - **⚠️ REMOTE mode destabilizes the CUSTOM MIDI page.** Discovered during the T7 session (2026-07-20): with Operating Mode set to REMOTE, the CUSTOM MIDI editing page (`2ND → CUSTOM`) worked for exactly one edit and then became unresponsive on any further edit, requiring a power cycle. Revert Operating Mode to BANK before doing any Custom MIDI work on the device. (This may be related to the still-unresolved Operating Mode byte discrepancy above — REMOTE mode changes preset addressing, and CUSTOM P1's preset-select field may not handle that correctly in this firmware.)
 - **A "recall preset" step in a procedure can silently fail.** T2.D's steps said "recall PR3" before configuring PER-PR values, but the resulting bytes landed on PR1 — the recall didn't take, and CTR STORE saved onto whichever preset was actually active. Always confirm the LCD shows the intended preset immediately before CTR STORE, especially after a bank-size change (which remaps which physical switches are preset switches).
 - **Song and Set assignment pages have no OFF state** (manual SONG/SET P2/P3, pp.56-58). Unlike the PC-map (which does support `OFF` to unmap a PC), Song Create (`PR1-120`) and Set Create (`SONG1-150`) only cycle through valid targets — there's no way to leave a slot unassigned from the front panel. A song has 15 preset slots (SW1-15); only the first Bank-Size are active but all 15 are stored.
+- **⚠️ Write All (bulk load) drops the last preset + corrupts some options** (reported 2026-07-21, unresolved). After a full restore, PR120 is blank and a few global options are wrong — reproducible across restores, and even when the source is a known-good second unit; a repeat Write All fails identically. The editor sends all 145 frames correctly at spec pacing (verified in the server log), so this is device-side. Leading hypothesis: the device commits each preset frame only when the *next* frame starts arriving, so PR120 (followed by a globals frame, not another preset) is never flushed, and the same preset→globals boundary corrupts the adjacent options. Needs a post-restore dump diff to confirm the exact damage before a fix (candidate: append a trailing "flush" frame after the last preset). Full detail + candidate fixes in [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
 
 ## 7. T7 — completed 2026-07-20; T8 follow-up remains
 
@@ -579,24 +580,43 @@ location (globals frame, `offset=0x12+SW#*2`).
 
 ### T8 — one small follow-up
 
-| # | Item | Device steps | What it settles |
-|---|------|--------------|------------------|
-| T8.1 | Operating Mode's real byte(s) | With Operating Mode **currently BANK**, change to SONG only (no other edits), dump. Change SONG→REMOTE, dump. | Does frame-122 `0x08` ever change? Does tail `0x0A` change for SONG too, or only for REMOTE? Resolves the discrepancy flagged in the Frame 122 and Frame 144 sections above. |
-| T8.2 | Bank Style's real location | With Operating Mode back in BANK (see the REMOTE/CUSTOM quirk — unrelated but good hygiene), cycle Bank Style FIRST→CURNT→OFF as the *only* edit each time (3 dumps). | Bank Style's actual byte, now that `0x46` is proven to be SW1's switch type. |
-| T8.3 | Write-path validation | With T8.1/T8.2 resolved (or using current code as-is), use the **editor** to write Bank Size, Switch Type, and Operating Mode via Write All, then Read All and verify. | First real test of whether these write paths take effect on hardware — everything above was Read-All-only. |
+The refined session is **8 read-only capture dumps** (reusing T7's `5a.syx`
+for the REMOTE data point):
 
-Method: **Save .syx** baseline first; after each single edit press CTR STORE,
-dump via Read All, Save .syx, and diff with `tools/diff_dumps.py` (or run
-`tools/analyze_captures.py baseline.syx new.syx` for the annotated report).
-Keep the baseline as your restore point.
+| id | Item | What it settles |
+|----|------|------------------|
+| 1a | BANK-mode CUSTOM stability | Confirms the CUSTOM crash was REMOTE-specific, not an editor bug; yields 3 more CMD-type anchors. |
+| 2a | Operating Mode: BANK→SONG | Which byte tracks SONG; with baseline (BANK) + `5a` (REMOTE) fully maps the field and resolves the frame-122 `0x08` vs tail `0x0A` discrepancy. |
+| 3a-3c | Bank Style FIRST/CURNT/OFF | Bank Style's real byte (now that `0x46` is proven to be SW1's switch type). |
+| 4a | Filter Channel 1 → BLOC | The 16 per-channel filter cells (predicts `0x2A`). |
+| 4b | Starting Preset CH2 | Per-channel Starting Preset offsets (only CH1 at `0x6A` known). |
+| 4c | PED2 PER-PR | chan-id 16 = PED2 (only PED1=17 confirmed). |
 
-Full narrative + exact button presses: [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
+Method: **Save .syx** baseline first; after each single edit press CTR STORE
+where needed, dump via Read All, Save .syx, and diff with
+`tools/analyze_captures.py baseline.syx new.syx`. Keep the baseline as the
+restore point.
+
+**Separately, Part 2 (write-path validation) is blocked** on the Write All
+last-preset drop (see Hardware Quirks above) — that must be diagnosed and
+fixed before any editor→device write test is meaningful.
+
+Full narrative + exact manual-verified button presses:
+[HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
 
 ## 8. Timing for writing back
 
 Manual: *"about 65 Hz (or about 1 byte every 15 milliseconds). Faster transfer will cause a "Buffer Overflow" error on All Access."*
 
-`app.py` throttles between frames with `time.sleep(max(0.03, n * 0.015))` — at least 30 ms gap, longer for big frames. Conservative but reliable.
+`app.py::dump_send` streams the whole 145-frame dump as one continuous byte
+stream, **1 byte per `send_message`, `time.sleep(0.015)` between bytes**, with
+**no inter-frame pause** (chunk_size=1, byte_delay=15 ms, inter_frame=0). Real
+transfers measure ~18 ms/byte once OS/USB scheduling overhead is added, so the
+device is never driven faster than spec. Earlier tests found that byte delays
+>15 ms or *any* inter-frame pause made the device commit early and ignore
+later frames, so these values are hard-locked. **Caveat:** this pacing still
+reproducibly loses the last preset (PR120) on restore — see the Write All
+quirk under §6 and [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
 
 ## 9. Save / Load round-trip
 

@@ -11,7 +11,7 @@ Web-based editor for the Rocktron All Access MIDI foot controller (1994; 18 swit
 - **Load .syx** — pick a bulk-dump file with the browser file picker.
 - **Save .syx** — downloads the current in-memory dump (with your edits spliced in) to your `Downloads` folder as `rocktron-YYYYMMDD-HHMMSS.syx`.
 - **Read All** — arms a capture session; trigger from the device (`SYSX → DUMP → CTR STORE`). The editor accumulates the 145 frames and auto-parses when the 23-byte end-of-dump marker lands.
-- **Write All** — sends the current dump back, byte-by-byte at the manual's literal "1 byte every 15 ms" rate (~11 minutes for a full 43 KB dump). Live progress in the toast + server log. **Refuses to write a partial/corrupt dump** (validates the exact 145-frame multiset first).
+- **Write All** — sends the current dump back, byte-by-byte at the manual's literal "1 byte every 15 ms" rate (~11 minutes for a full 43 KB dump). Live progress in the toast + server log. **Refuses to write a partial/corrupt dump** (validates the exact 145-frame multiset first). ⚠️ **Known issue:** on real hardware the last preset (PR120) comes back blank and a few global options are corrupt after a full restore — a device-side bulk-load quirk, not a bad dump. Under investigation; see [docs/HARDWARE_TEST_PLAN.md](docs/HARDWARE_TEST_PLAN.md). Keep a backup unit / dump.
 - **Partial-dump banner** — load tags the dump as `complete: true/false`; a yellow banner appears and disables Write All if the capture is incomplete.
 - **Server-side write logging** — Write All progress is logged to the terminal running the server, so you can watch a transfer even if the browser tab loses focus.
 
