@@ -14,37 +14,39 @@ What's left: **Part 1.5 (T8)** — 8 small follow-up captures — and **Part 2
 
 **Symptom (reported 2026-07-21, reproducible):** after a full Write All
 restore, the **last preset (PR120) is blank** and **some global options are
-corrupt**. Confirmed reproducible across multiple restores and even when the
-source is a known-good second All Access unit. A repeat Write All fails
-identically (not random jitter).
+corrupt**. Happens **whenever a bulk restore is attempted**, reproducible
+across restores. A repeat Write All fails identically (not random jitter).
 
-**Not the editor:** the server log confirms Write All streams all 145 frames
-/ 43,647 bytes at the spec'd chunk=1 / 15 ms-per-byte pacing; the last
-observed transfer completed 145/145 frames in 790 s (~18 ms/byte actual —
-slightly *slower* than 15 ms, so overflow-from-too-fast is not the cause).
-The baseline dump is complete (PR120 = a real preset, not blank).
+**It's the device's bulk-load firmware, not the editor** — confirmed
+2026-07-21 by a **device-to-device restore** (a known-good second All Access
+dumping straight into the first over Rocktron's own native bulk format):
+PR120 came back blank there too. So the editor, the MIDI interface, and the
+pacing are all ruled out. (For the record, the editor side is clean: the
+server log shows Write All streaming all 145 frames / 43,647 bytes at
+chunk=1 / 15 ms-per-byte, ~18 ms/byte actual — not too fast — and the
+baseline dump is complete with PR120 = a real preset.) The manual documents
+no caveat about this; it's an undocumented firmware bug.
 
-**Leading hypothesis:** the device commits each preset frame only when the
-*next* frame begins arriving. That works for PR1–PR119 (each is followed by
-another frame) but leaves **PR120 in an uncommitted buffer** — what follows
-it is a globals frame, not another preset — so it is never flushed. The same
-preset→globals boundary is where the corrupt options cluster. One mechanism,
-both symptoms.
+**✅ Working recovery (found 2026-07-21): factory reset, THEN restore on top.**
+Do a full Memory Reinitialization (SETUP P9, code 230), then bulk-restore —
+PR120 sticks and the options come back clean. This strongly implies the bug
+is tied to **persistent/stale memory state**: a normal restore-over-existing
+leaves the last preset's slot in a state that never commits, but loading onto
+a freshly-wiped memory commits everything. (This also refines the earlier
+"last frame never flushes" hypothesis — the flush works fine from a clean
+slate, so it's state-dependent, not a pure ordering issue.)
 
-**To resolve (next session):** capture a **post-restore dump** (Write All the
-baseline, then Read All → Save) and diff it against baseline with
-`tools/analyze_captures.py baseline.syx post_restore.syx`. That shows exactly
-whether PR120's frame comes back all-zeros vs partially-written, and which
-option bytes moved — which picks between the candidate fixes:
-- **Append a trailing "flush" frame** after the last preset (e.g. a duplicate
-  PR120 frame, or a harmless throwaway) so the real PR120 commits.
-- **Re-send just PR120** after the bulk dump (single-frame Write Preset).
-- **A boundary-only settle delay** at the preset→globals transition (note the
-  existing warning that a *general* inter-frame pause makes things worse —
-  see the pacing comment in `app.py::dump_send`).
+**To pin the mechanism (next session):** capture a **post-restore dump** from
+a *normal* (non-factory-reset) restore, then one from a
+factory-reset-then-restore, and diff both against baseline with
+`tools/analyze_captures.py`. That shows exactly what stale state blocks the
+commit, and whether the editor should (a) simply recommend/automate the
+factory-reset-first flow, or (b) append a trailing "flush" frame / re-send
+PR120 as a targeted fix. Any code fix must be hardware-validated (Part 2)
+before shipping.
 
-Any fix must be validated on hardware (Part 2, W-series) before it ships.
-Until then, the reliable restore path is the user's **second unit**.
+**Reliable restore path today:** factory reset (SETUP P9 = 230) → then Write
+All / bulk load. Or keep the second unit as master.
 
 ---
 
