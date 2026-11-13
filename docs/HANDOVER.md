@@ -38,7 +38,7 @@ and check changed requirements. No database migration or factory reset is needed
 The audit passed 33 unittest cases, the legacy 47-check private-baseline harness
 and 45-check synthetic harness, and a Chromium smoke test. The public snapshot
 passes the same unittest suite with one private-capture test skipped. CI runs
-Python 3.9/3.12; consult the actual remote workflow result for the release commits.
+Python 3.9/3.12 on Ubuntu 22.04 (pinned after the rolling image dropped 3.9); consult the actual remote workflow result for the release commits.
 These checks establish software behavior, not hardware receipt or restore safety.
 
 Optional browser check, with Playwright and Chromium installed:

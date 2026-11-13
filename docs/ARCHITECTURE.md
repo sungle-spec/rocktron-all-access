@@ -81,6 +81,7 @@ node --check static/editor.js
 ```
 
 CI runs the Python suite, legacy harness, and JavaScript syntax check on Python
-3.9 and 3.12. Actual UI behavior and hardware acceptance need separate checks.
+3.9 and 3.12 on pinned Ubuntu 22.04 (the rolling Ubuntu 26.04 image does not
+provide Python 3.9). Actual UI behavior and hardware acceptance need separate checks.
 The audit includes a local Chromium smoke test with MIDI disabled; this is not
 physical-device verification.

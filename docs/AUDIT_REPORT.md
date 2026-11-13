@@ -100,7 +100,10 @@ rewrites are required.
 - Git diff whitespace and JavaScript syntax checks; public snapshot and Markdown
   link checks recorded during final validation.
 
-CI is added for Python 3.9/3.12, but its remote execution has not been observed.
+CI covers Python 3.9/3.12. The first remote run failed before tests because
+`ubuntu-latest` selected Ubuntu 26.04, which had no Python 3.9 build. The
+workflow now pins Ubuntu 22.04 and runs matrix entries independently; consult
+the resulting GitHub Actions run for current release status.
 Linux and Windows hardware behavior remains untested here. The browser test owns
 and stops its temporary file-only server; no physical interface is constructed.
 
