@@ -68,11 +68,11 @@ Delay / tempo / relay fields per preset: **Not documented** - manual makes no me
 |---|---|---|---|
 | P1 | Operating Mode | `BANK`, `SONG`, `REMOTE` | See Sec 8 |
 | P2 | Bank Size (Bank By) | `1`, `5`, `10`, `15` | Determines # preset switches vs instant-access switches |
-| P3 | Bank Style | `FIRST`, `CURNT`, `NONE` | Recall behavior on bank up/down |
+| P3 | Bank Style | `FIRST`, `CURNT`, `OFF` | Recall behavior on bank up/down |
 | P4 | Instant-access operating status | per switch/pedal: `GLOBAL` or `PER PR` | Applies to SW1-SW15 and PED1-PED2 individually |
 | P5 | Naming MIDI channels & switches | 4 chars each, `A-Z 1-9`, for `CH1-16`, `SW1-15`, `PED1`, `PED2` | Custom abbreviations |
 | P6 | Starting Preset Number | `0` or `1` | Per-channel (CH1-CH16) |
-| P7 | MIDI Filtering | per message-type and per channel: `BLOC` or `MERG` | Applies to all MIDI commands and CH1-16 |
+| P7 | MIDI Filtering | one message-type OR channel selector, plus `BLOC` / `MERG` | Applies to all MIDI commands and CH1-16 |
 | P8 | Preset Reinitialization | Selected preset `PR1-120` | Front-panel only action |
 | P9 | Memory Reinitialization | Code `0-255`. `230` = full factory reset; `231` = reset only controller info for instant-access switches/pedals | |
 | P10 | Remote Title Number | `0-255` | For REMOTE mode linking to other Rocktron racks |
@@ -143,14 +143,14 @@ Control numbers per MIDI channel / switch assignment are free-form; manual examp
 |---|---|
 | `BANK` | Bank-and-preset navigation; UP/DOWN select bank (first two digits, 0-12), preset switches pick within bank. Responds to incoming PC. |
 | `SONG` | Preset switches mapped per-song. Songs arranged into Sets. |
-| `REMOTE` | Unit acts as remote for compatible Rocktron rack; titles/LEDs mirror rack state; PC not sent from preset switches (rack drives state). |
+| `REMOTE` | Unit acts as remote for compatible Rocktron rack; titles/LEDs mirror rack state; controller states are rack-driven; the manual says control changes are not sent on preset recall. |
 
 **Bank Styles** (SETUP P3):
 | Style | Meaning |
 |---|---|
 | `FIRST` | Bank UP/DOWN recalls first preset of new bank |
 | `CURNT` | Recalls same position (last preset switch pressed) in new bank |
-| `NONE` | Does not recall a preset until a preset switch is pressed |
+| `OFF` | Does not recall a preset until a preset switch is pressed |
 
 **Bank Sizes** (SETUP P2): `1`, `5`, `10`, `15` presets per bank.
 
@@ -195,3 +195,13 @@ User-supplied sheets (`sheet_*.tsv` in same folder) give a concrete real-world e
 - `sheet_MIDI_MONITOR.tsv`: captured on-the-wire MIDI showing PC and CC output per preset recall - useful for reverse-engineering the sysex block.
 
 These confirm the manual's field model (16 channels, 15 switches, 2 pedals, 120 presets, PC per channel, CC per switch) but provide no protocol bytes.
+
+## Audit clarification (2026-11-13)
+
+SETUP P7 selects either a message type or a channel in one left-hand field;
+it does not expose an independent type-by-channel grid. The raw byte map for
+all channel entries remains unconfirmed. SONG/SET P2 assigns PR1–120 to
+SW1–15; P3 assigns SONG1–150 to banks. Neither offers OFF (manual pp.56–58).
+Manual control ranges do not establish their SysEx encoding. In particular,
+Remote Title permits 0–255 on the device but this editor only supports 0–127
+until the companion-byte handling for the upper range is captured.

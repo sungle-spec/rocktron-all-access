@@ -15,17 +15,17 @@ Contiguous diffs are clustered and labeled with their before/after byte ranges.
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from rocktron.validation import validated_frames, validate_dump, FrameValidationError
 
-def split_frames(buf: bytes) -> list[bytes]:
-    frames = []
-    start = None
-    for i, b in enumerate(buf):
-        if b == 0xF0:
-            start = i
-        elif b == 0xF7 and start is not None:
-            frames.append(buf[start:i + 1])
-            start = None
-    return frames
+
+
+def split_frames(buf):
+    """Use the shared structural parser; never silently discard stream bytes."""
+    return validated_frames(buf)
+
 
 
 def cluster_diffs(diffs: list[tuple[int, int, int]]) -> list[list[tuple[int, int, int]]]:
@@ -72,6 +72,11 @@ def main():
         sys.exit(1)
     a = Path(sys.argv[1]).read_bytes()
     b = Path(sys.argv[2]).read_bytes()
+    try:
+        validate_dump(a, strict=True)
+        validate_dump(b, strict=True)
+    except FrameValidationError as error:
+        sys.exit(f'cannot align partial/malformed bulk dumps: {error}')
     fa = split_frames(a)
     fb = split_frames(b)
     print(f"baseline: {len(a)} bytes, {len(fa)} frames")

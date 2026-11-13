@@ -1,88 +1,58 @@
 # Getting Started
 
-Get the Rocktron All Access editor running and talking to your unit in about
-five minutes.
+Use Python 3.9+ and a USB-MIDI interface for live MIDI, or work with files offline.
+This is a partial reverse-engineered editor, not a verified restore utility.
 
-## What you need
+## Launch
 
-- **Python 3.9+** (`python3 --version` to check)
-- A **MIDI interface** connected to the All Access — both directions:
-  - interface **OUT → All Access MIDI IN**
-  - All Access **MIDI OUT → interface IN**
-- The All Access itself (any firmware with the SYSX menu — tested on v1.7)
-
-No MIDI hardware? The editor still runs — you can load, inspect, and edit
-`.syx` dump files offline and save the result.
-
-## 1. Install & launch
+For the public distribution:
 
 ```bash
 git clone https://github.com/sungle-spec/rocktron-all-access.git
 cd rocktron-all-access
-./run.sh          # Windows: run.bat
+bash run.sh
 ```
 
-The first launch creates a local `.venv` and installs the three dependencies
-(Flask, Flask-SocketIO, python-rtmidi). When you see:
+On Windows use `run.bat`. Open <http://localhost:5002>.
+The launchers create a virtual environment and install pinned requirements.
+The shell launcher refreshes them when `requirements.txt` changes; the Windows
+launcher checks them each time. A failed install stops startup and can be retried.
+For manual installation use `.venv/bin/python -m pip install -r requirements.txt`
+(or the Windows equivalent). Keep the server local: it has no authentication.
 
-```
-Rocktron All Access editor — http://localhost:5002
-```
+For explicit file-only use, `AA_DISABLE_MIDI=1 bash run.sh` avoids constructing
+hardware MIDI ports. The Socket.IO browser client is bundled locally. Optional
+Google Fonts can fail without preventing operation.
 
-open **http://localhost:5002** in your browser.
+## Back up and edit
 
-> The server binds to `127.0.0.1` only — nothing is exposed to your network.
+1. Connect interface OUT → All Access IN and All Access OUT → interface IN.
+   Use the manufacturer's cabling/power guidance; do not infer phantom-power
+   wiring from the older editor guide.
+2. Select MIDI IN/OUT in the header. For a file-only session, load a `.syx` instead.
+3. Click **Read All**, then initiate the dump on the device: `SYSX → DUMP → CTR STORE`.
+4. Save the untouched dump and retain it separately. This is a backup of captured
+   state, not necessarily factory state or a proven restore point.
+5. Edit and save a separate `.syx`. Partial captures are for inspection and cannot
+   be promoted to a complete dump just by editing them.
 
-## 2. Connect MIDI
+PC slots now use the capture-backed base `0x20`; older versions used `0x24`
+and could alter PED1 when saving CH15/CH16. EOX appears as an empty SysEx field
+(API `null`); do not replace empty fields with zero to preserve an existing string.
+Operating Mode and Bank Style remain unresolved and do not write to the dump.
 
-In the header bar, pick your interface in the **IN** and **OUT** dropdowns.
-The dots next to each turn green when the port opens.
+## Hardware writes are experimental
 
-## 3. Get a dump into the editor
+Bulk and single-preset sends require `AA_ENABLE_EXPERIMENTAL_WRITE=1` and are
+otherwise disabled. Opt-in does not validate the message chunk transport or
+standalone receive behavior. Host progress is not wire delivery or device acceptance.
 
-Two ways:
+A restore session reported blank PR120 and altered globals, including during a
+device-to-device restore. The cause is unknown. One reset-then-restore success
+was reported; factory reset is destructive and not a guaranteed recovery step.
+Retain all dumps and consult the [hardware plan](HARDWARE_TEST_PLAN.md) before
+planning any device experiment. Do not treat a backup file as guaranteed rollback.
 
-- **From the device (recommended first step):** click **Read All**
-  (the down-arrow icon), then on the All Access run `SYSX → SEND/DUMP`.
-  The editor captures all 145 frames (~44 KB) and populates every tab.
-- **From a file:** click **Load .syx** (folder icon) and pick a `.syx`
-  bulk-dump file with the file picker.
-
-**Immediately click Save .syx** (floppy icon) after your first Read All —
-that download is your factory-state backup. Keep it somewhere safe.
-
-## 4. Make your first edit
-
-1. Open the **Presets** tab and click a preset.
-2. Rename it, or toggle a PC slot / IA switch state.
-3. Click **Save** in the preset detail panel — this splices your change into
-   the in-memory dump (every other byte is preserved exactly).
-
-## 5. Write it back to the device
-
-1. On the All Access: `SYSX → LOAD` (the unit waits for incoming sysex).
-2. In the editor: click **Write All** (yellow upload icon).
-3. Wait — a full dump takes ~11 minutes. The pacing is hard-locked to the
-   manual's 1-byte-per-15 ms spec to avoid the unit's Buffer Overflow error.
-   A progress bar tracks the transfer; the terminal running the server logs
-   progress too.
-
-When it finishes, the unit returns to normal operation with your edits live.
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `pip` fails building **python-rtmidi** | Install a C compiler first (macOS: `xcode-select --install`; Windows: "Desktop development with C++" from VS Build Tools; Linux: `sudo apt install build-essential libasound2-dev`). Then delete `.venv/` and rerun `run.sh`. |
-| Editor runs but says **python-rtmidi: no** | MIDI features are disabled but file editing still works. Fix the install above to enable hardware I/O. |
-| My interface isn't in the dropdowns | Plug it in, then wait a few seconds — the port list refreshes every 4 s. Check no other app (DAW) holds the port exclusively. |
-| **Read All stalls** partway | Check the All Access MIDI OUT → interface IN cable. The editor flags a partial capture and blocks Write All so you can't burn an incomplete dump. |
-| Device shows **Buffer Overflow** during Write All | Shouldn't happen at stock pacing. Make sure nothing else is sending MIDI to the unit at the same time. |
-| Port 5002 already in use | `PORT=5003 ./run.sh` and open `http://localhost:5003`. |
-
-## Next steps
-
-- [USER_MANUAL.md](USER_MANUAL.md) — every tab and workflow in detail
-- [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) — the byte-level dump format
-- [MANUAL_SUMMARY.md](MANUAL_SUMMARY.md) / [MIDI_SPEC.md](MIDI_SPEC.md) —
-  protocol notes extracted from the original 1994 manual
+See the [user manual](USER_MANUAL.md), [audit](AUDIT_REPORT.md), and
+[architecture](ARCHITECTURE.md). For a different local port use
+`PORT=5003 bash run.sh` on a POSIX shell and open <http://localhost:5003>.

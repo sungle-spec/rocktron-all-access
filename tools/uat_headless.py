@@ -2,10 +2,8 @@
 """
 Headless UAT harness for the Rocktron All Access editor.
 
-Runs every editing endpoint as a FILE round-trip (Load -> edit -> Save -> reload
--> assert) with NO MIDI hardware and NO running server required. This is the
-"test locally via sysex files" path: it imports app.py's pure parse/encode
-functions directly and exercises them exactly as the HTTP routes do.
+Exercises pure codec byte splices without Flask, MIDI hardware, or a running
+server. This does not exercise HTTP endpoints; tests/test_api.py covers those.
 
 Why this exists
 ---------------
@@ -22,51 +20,13 @@ Usage
 
 Exit code 0 = all pass, 1 = one or more failures.
 """
-import importlib.util
 import os
 import sys
-import types
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-# app.py now imports from security_patch at module level; make sure that
-# sibling resolves whether the harness is run from ROOT or anywhere else.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-
-
-# -- import app.py without pulling in flask / rtmidi / a live MIDI port -------
-def _load_app_module():
-    # Stub rtmidi so MidiBridge takes the HAS_RTMIDI=False path (no ALSA/CoreMIDI).
-    sys.modules.setdefault("rtmidi", None)
-
-    if "flask" not in sys.modules:
-        flask = types.ModuleType("flask")
-        _noop_deco = lambda *a, **k: (lambda f: f)
-        flask.Flask = lambda *a, **k: types.SimpleNamespace(
-            config={}, route=_noop_deco,
-            before_request=_noop_deco, after_request=_noop_deco,
-            errorhandler=_noop_deco,
-        )
-        for nm in ("jsonify", "request", "send_from_directory", "Response", "session"):
-            setattr(flask, nm, lambda *a, **k: None)
-        sys.modules["flask"] = flask
-
-    if "flask_socketio" not in sys.modules:
-        fsio = types.ModuleType("flask_socketio")
-        fsio.SocketIO = lambda *a, **k: types.SimpleNamespace(
-            on=lambda *a, **k: (lambda f: f), emit=lambda *a, **k: None
-        )
-        fsio.emit = lambda *a, **k: None
-        sys.modules["flask_socketio"] = fsio
-
-    spec = importlib.util.spec_from_file_location("aa_app", os.path.join(ROOT, "app.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-aa = _load_app_module()
+from rocktron import codec as aa
 
 
 # -- synthetic dump generator (structurally identical to a real 145-frame dump)
@@ -91,11 +51,11 @@ def build_synthetic_dump():
     frames.append(frame(0x2B, aa.PC_MAP_FRAME_LEN))
     nb = bytearray(frame(0x2B, aa.NAME_BLOCK_LEN))
     nb[6:6 + 8] = aa.encode_ascii_pairs("LOOP", 4)
-    frames.append(bytes(nb))
     gs = bytearray(frame(0x2B, aa.GLOBAL_STATE_FRAME_LEN))
     gs[0x08] = 0; gs[0x44] = 0; gs[0x46] = 0
     frames.append(bytes(gs))
     frames.append(frame(0x2B, aa.FILTER_FRAME_LEN))
+    frames.append(bytes(nb))
     for _ in range(10):
         frames.append(frame(0x2B, aa.SONG_FRAME_LEN))
     for _ in range(10):
@@ -142,13 +102,13 @@ def run(buf):
     check("120 presets parsed", len(parsed["presets"]) == 120,
           f"got {len(parsed['presets'])}")
     check("16 channel names", len(parsed["channel_names"]) == 16)
-    check("globals decoded (operating_mode non-null)",
-          parsed["globals"]["operating_mode"] is not None,
-          "globals frame missing or wrong length")
+    check("unresolved operating mode is not reported as confirmed",
+          parsed["globals"]["operating_mode"] is None)
 
     # UAT-10.1: no-edit round-trip is byte-identical (save streams dump_bytes)
     print("\n[UAT-10.1  no-edit round-trip]")
-    check("save == load (byte-identical, no edits)", buf == bytes(buf))
+    check("parsed raw frames reconstruct the original stream",
+          b"".join(parsed["_raw"]["frames"]) == buf)
 
     # UAT-1.1: rename preset, only name bytes change
     print("\n[UAT-1.1  rename preset]")
@@ -261,7 +221,7 @@ def run(buf):
     state_orig, tail_orig = buf[so:so + sn], buf[to:to + tn]
     ns, nt = aa.encode_globals(state_orig, tail_orig,
                                {"operating_mode": "SONG", "midi_rx_channel": "OMNI"})
-    check("operating_mode SONG -> 0x08 == 0x01", ns[0x08] == 0x01)
+    check("unconfirmed operating mode edit preserves globals", ns == state_orig)
     check("OMNI -> tail 0x12 == 0x10", nt[0x12] == 0x10)
 
     # UAT-2.2 / REGRESSION: bank size lives in the tail frame, not globals

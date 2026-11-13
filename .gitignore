@@ -6,3 +6,10 @@ __pycache__/
 captures/
 .claude/
 exports/
+
+# Local hardware evidence and credentials must never enter a public snapshot.
+dumps/
+.env
+.env.*
+*.log
+.codex/

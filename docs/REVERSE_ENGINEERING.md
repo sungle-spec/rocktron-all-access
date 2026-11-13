@@ -1,6 +1,6 @@
 # Rocktron All Access — SysEx Reverse Engineering
 
-Everything below was derived from a single bulk dump (`rocktron.syx`, 43 647 bytes, 145 frames) plus a 1 895-row MIDI monitor capture. The official 77-page user manual documents features but **never** publishes the sysex byte layout — every offset below came from inspecting the dump, not the manual.
+This is a partial evidence map, not a complete protocol specification. Tracked T0–T6 dumps support some byte-level observations; T7 results below are session reports whose raw captures and photo are absent from this checkout. Manual feature descriptions, corpus consistency, application round-trips, and device acceptance are different evidence levels. See [AUDIT_REPORT.md](AUDIT_REPORT.md) for provenance gaps and corrections. Frame numbers below are zero-based unless stated otherwise; the tools use differing conventions.
 
 ## 1. Sysex framing
 
@@ -23,18 +23,18 @@ F0 00 00 29 08 <CMD> <payload…> F7
 Size  Count  Inferred role
 ───   ───    ─────────────────────────────────────────
 309   120    Preset data frames (one per PR1..PR120)
-457    10    Songs / sets (10 blocks of 4-char slots)
-263     1    Sequential-ID table (probably PC-map: 128 slots → 120 presets)
+457    10    Songs: 15 songs × 15 paired slots per frame
+263     1    PC-map: 128 paired entries
 279     1    Name block: 16 channel + 2 pedal + 15 switch 4-char names
-223     1    Bitmap (per-switch enabled / switch-type table?)
-139     1    All 01/00 pairs — possibly per-channel filter mask
-107    10    Song payloads (10 × 107 B — 1 per set?)
- 23     1    Tail / end-of-dump + checksum-ish (`… 66 01 F7`)
+223     1    Global configuration / operational state
+139     1    Filter / starting-preset fields; channel mapping pending
+107    10    Sets: 50 paired song assignments per frame
+ 23     1    Tail / global fields; trailer semantics unknown (`… 66 01 F7`)
 ```
 
 ## 3. 7-bit ASCII-pair encoding
 
-Wherever the dump stores a string, it uses **two bytes per character**: low byte = ASCII (`0x20..0x7F`), high byte = `0x00`. This is standard 7-bit sysex packing — the MSB of each ASCII char becomes the next byte.
+Wherever the dump stores a string, it uses **two bytes per character**: low byte = ASCII (`0x20..0x7F`), high byte = `0x00`. The observed high byte is zero for these characters; this does not establish a general packing algorithm for other fields.
 
 ```python
 def decode_ascii_pairs(buf, off, n_chars):
@@ -66,19 +66,24 @@ Updated 2026-04-26 from `rev_T1_presets.syx`, `rev_T2_globals.syx`, `rev_T3_song
 | `0x00..0x04`    | 5    | Sysex header `F0 00 00 29 08`             | ✅ constant |
 | `0x05`          | 1    | Command byte (`2A` first preset frame, `2B` rest) | ✅ |
 | `0x06..0x1E`    | 26   | **Preset name** — 13 × (ASCII, 0x00) pairs starting at `0x06` | ✅ read/write — see below |
-| `0x20`          | 1    | Title metadata / "title last byte marker" — flips when title is overwritten | ⚠️ resets to `0x00` after rename, not a visible char |
-| `0x21..0x23`    | 3    | Preset header bytes — IA bitmap candidate | ⚠️ partial |
-| `0x24..0x43`    | 32   | **16 × PC slots** — `(value, status)` pairs, CH1..CH16 | ✅ |
-| `0x40..0xC7`    | 136  | **IA slot table (PER-PR overrides)** — 17 slots × 8 bytes; first slot doubles as channel + switch-id record (see below) | ✅ partial |
+| `0x20..0x3F` | 32 | **16 × PC slots**, `(value, status)` pairs CH1–CH16 | T1 literal capture: values 0..15 |
+| `0x40..0xC7`    | 136  | **IA slot table (PER-PR overrides)** — 17 slots × 8 bytes; separate from corrected PC range | ✅ partial |
 | `0xC8..0xCD`    | 6    | **IA on/off bitmap** — 3 × (bitmap, 0x00) pairs, SW1-15 | ✅ |
 | `0xCE..0xF5`    | 40   | **Custom MIDI CMD1-5** — 5 slots × 8 bytes, `[type, chan, data1, data2]` pairs. No collisions; all 5 writable. | ✅ |
 | `0xF6`          | 1    | **SysEx ON/OFF toggle** | ✅ |
 | `0xF8..0x133`   | 60   | **SysEx string** — 30 × `(byte, 0x00)` pairs | ✅ |
-| `0x134..0x136`  | 3    | Tail / unknown (final `F7` is at 0x137 = 309) | ❓ |
+| `0x134` | 1 | Final `F7` (decimal offset 308) | Frame length = 309; no bytes beyond this offset |
 
-The only bytes in the whole 309-byte frame still unexplained are `0x20..0x23`
-(title metadata) and the 3-byte tail — confirmed by an exhaustive census of
-all 120 baseline presets (`tools/analyze_captures.py`, Hunt 6).
+A 309-byte frame occupies offsets `0x000..0x134`; `0x134` is the final
+`F7`. There is no three-byte tail beyond the SysEx pairs. Full byte accounting
+under a candidate layout does not establish all semantics, including zero bytes.
+
+The former PC base `0x24` was wrong. The literal T1 PR1 capture places the
+16 PC pairs at `0x20..0x3F`, followed by PED1 at `0x40`. Consequently,
+`0x20..0x23` are CH1/CH2 PC slots, not title metadata. With the former base,
+CH15/CH16 editing targeted `0x40..0x43` and could overwrite PED1 channel/CC
+configuration. The corrected codec base is `0x20`; literal-capture and isolation
+regressions belong in `tests/test_protocol.py`.
 
 ### Preset name (offsets 0x06..0x1E)
 
@@ -100,34 +105,34 @@ all 120 baseline presets (`tools/analyze_captures.py`, Hunt 6).
 | `0x1C` | 12 | "1" |
 | `0x1E` | 13 | space |
 
-Byte `0x20` carries metadata that resets to `0x00` when the title is overwritten (was `0x63` ('c') in baseline, became `0x00` after PR1 rename). Not a visible char.
+### Per-channel PC slots (offsets 0x20..0x3F)
 
-### Per-channel PC slots (offsets 0x24..0x43)
+Each preset has 16 two-byte `(value, status)` slots. The value offset is
+`0x20 + 2*(channel-1)`; the following byte is status. The working status
+interpretation is `0x00` active and `0x01` OFF.
 
-Each preset stores **16 program-change slots** at offsets `0x24..0x43`, one per MIDI channel CH1..CH16. Each slot is **2 bytes**: `(value, status)`.
+| Channel | Value / status offsets |
+|---|---|
+| CH1 | `0x20 / 0x21` |
+| CH2 | `0x22 / 0x23` |
+| CH15 | `0x3C / 0x3D` |
+| CH16 | `0x3E / 0x3F` |
+| PED1 (separate table) | starts `0x40`, CC at `0x42` |
 
-```
-0x24-0x25 = CH1   (LOOP)
-0x26-0x27 = CH2   (HEAD)
-0x28-0x29 = CH3   (DIEZ)
-0x2A-0x2B = CH4   (WAM1)
-…
-0x42-0x43 = CH16
-```
+**Direct tracked evidence:** PR1 of `reference/re-captures/rev_T1_presets.syx`
+has exactly `[(0,0), (1,0), …, (15,0)]` at `0x20..0x3F`.
+Its PED1 bytes remain `00 00 11 00 7F 00 00 00` at `0x40..0x47`.
+Baseline `0x20=99` also matches the documented MR9 PC99 observation.
+This resolves the apparent PC/PER-PR overlap without inventing an alias role.
 
-- **value byte** (even offset): the displayed PC number (0-127 if Starting Preset = 0; 1-128 if Starting Preset = 1).
-- **status byte** (odd offset): `0x00` = active (PC sent on recall); `0x01` = inactive (`OFF` on the device).
+The relationship between stored values, displayed PC numbers, and per-channel
+Starting Preset 0/1 is still unverified. Do not assert that the stored byte is
+the displayed number, or apply a display-base conversion without controlled
+capture and live-output evidence.
 
-The PC value is stored as the **displayed** value, not the wire value (so display "PC 1" is byte `0x01`, regardless of starting-preset offset — wire value = display - starting_preset).
+### IA slot table (offsets 0x40..0xC7) — proposed 17-slot model; remaining ambiguities
 
-Confirmed by:
-- PR1 set to ascending CH1=PC1..CH16=PC16 → offsets 0x24, 0x26, … 0x42 contain values 0x02, 0x03, …  (off-by-one from user input — likely user typed PC2..PC17 or stored = display + 1 for one of the channel groups).
-- PR2 set to all PC127 → 0x24=0x7F, status 0x25=0x00. PR2 inverse pattern matches.
-- "PC slot leakage" in PR3..PR16 (user accidentally edited one PC slot per preset during T1.B navigation) confirms the 2-byte stride and slot layout independently.
-
-### IA slot table (offsets 0x40..0xC7) — 17 slots × 8 bytes ✅ fully resolved
-
-The region between the PC slots and the custom MIDI block is a **17-slot table** holding per-IA-slot config (channel + CC# + ON + OFF values) for each of the 15 IA switches + 2 pedals. Slots are stored in **REVERSED slot-index order** (slot for chan-id 17 first, descending to chan-id 1 at 0xC0) — same reversal pattern as the switch names in frame 123. Formula: `offset(chanid) = 0x40 + (17 - chanid) * 8`.
+The region after the corrected PC slots and before the IA bitmap is a **17-slot table** holding per-IA-slot config (channel + CC# + ON + OFF values) for each of the 15 IA switches + 2 pedals. Slots are stored in **REVERSED slot-index order** (slot for chan-id 17 first, descending to chan-id 1 at 0xC0) — same reversal pattern as the switch names in frame 123. Formula: `offset(chanid) = 0x40 + (17 - chanid) * 8`.
 
 PR1 baseline default state shows the layout cleanly:
 
@@ -142,7 +147,7 @@ PR1 baseline default state shows the layout cleanly:
 0xC0: 00 00 01 00 7F 00 00 00   ← slot for chan-id 1 (SW1)
 ```
 
-**Field layout (resolved offline, 2026-07-20 T7 session, `app.py::decode_per_pr_slots`):**
+**Working field layout (`rocktron.codec.decode_per_pr_slots`):**
 
 | Offset within slot | Field | Default | Meaning |
 |---|---|---|---|
@@ -151,7 +156,7 @@ PR1 baseline default state shows the layout cleanly:
 | +4 | **ON value** | `0x7F` (127) | |
 | +6 | **OFF value** | `0x00` (0) | |
 
-**Resolution evidence — two independent sessions agree exactly:**
+**Evidence levels:** T2 is tracked; T7 is a session report without its raw files in this checkout.
 
 1. A clean single-preset T7 capture configured SW9 (CH12/CC20/ON100/OFF50) and SW2 (CH6/CC10/ON127/OFF0) with no other edits. Result: SW9's slot (`0x80`, chanid 9) → `channel=0x0B(=CH12 0-based), cc=0x14(20), on=0x64(100), off=0x32(50)` — all four fields land exactly on target. SW2's slot (`0xB8`) → `channel=0x05(=CH6 0-based), cc=0x0A(10)` (ON/OFF unchanged because the targets equalled the defaults).
 2. Re-checking the **original T2 capture** against **PR1** (not PR3 as the T2 steps intended — see the quirk note below) with this same formula: SW11's slot (`0x70`, chanid 11) → `channel=0x02(=CH3), cc=0x2A(42), on=0x64(100), off=0x14(20)`, and PED1's slot (`0x40`, chanid 17) → `channel=0x03(=CH4), cc=0x0B(11)` — matching the T2.D steps (`SW11 → CH3/cc42/on100/off20`, `PED1 → CH4/cc11/on127/off0`) byte-for-byte.
@@ -190,7 +195,7 @@ hardware-observed — `N ON>`=0x01, `KPRS>`=0x02, `C CH>`=0x03, `NONE`=0x11 —
 and all four sit exactly on their list index, including both endpoints
 (index 1 and the terminal NONE at 17, the `0x11` "default marker" seen at
 every unset slot). The intermediate codes follow the same documented list,
-so `stored byte = CUSTOM P1 list index`. (Note: the MIDI *filter* page uses
+so `stored byte = CUSTOM P1 list index` is a working hypothesis for unobserved codes, not hardware confirmation of all 18 values. (Note: the MIDI *filter* page uses
 a different list order — see the Filter section — so don't cross-map the
 two.)
 
@@ -210,7 +215,7 @@ two.)
 
 **Consequences:** the region ends at `0xF5` — it does **not** touch the IA
 bitmap (`0xC8/0xCA/0xCC`), the SysEx toggle (`0xF6`) or the SysEx string
-(`0xF8+`). All five CMD slots are safely writable; the old CMD2/CMD3-only
+(`0xF8+`). The editor exposes all five CMD slots for file editing; device write-path acceptance remains pending; the old CMD2/CMD3-only
 write guard is removed. The headless UAT asserts a CMD5 write leaves `0xF6`
 untouched.
 
@@ -225,7 +230,7 @@ PR1 SYSX bytes set to BYTE1=0x01, BYTE2=0x02, BYTE3=0x03, BYTE4=0x04 produced:
 0xFE = 0x04 (BYTE4)   0xFF = 0x00
 ```
 
-30 bytes × 2-byte pair encoding = 60 bytes from `0xF8..0x133`. Default (unset) value = `0x01 0x00` per pair (visible as the stretch of `01 00 01 00 …` in baseline dumps).
+30 bytes × 2-byte pair encoding = 60 bytes from `0xF8..0x133`. The companion byte must not be discarded: the codec represents an EOX slot as JSON `null`, preserves its stored payload, and retains the EOX flag on a no-op edit. Numeric edits set the payload and clear the companion flag; the browser shows an empty field for EOX. No universal default-pair interpretation is established.
 
 SysEx ON/OFF toggle: at `0xF6` — see the dedicated section below (T5-confirmed).
 
@@ -332,13 +337,13 @@ unknown** — the old "FIRST/CURNT/NONE" claim was misread from T5's compound
 edit and is now retracted. (Note the manual's Bank Style values are actually
 **FIRST / CURNT / OFF**, not "NONE".) This was a real bug: the app's write path used to
 silently corrupt SW1/SW2's switch type whenever Bank Size or Bank Style was
-saved. Fixed in `app.py::encode_globals` (bank_style writes are now a
+saved. Fixed in `rocktron.codec.encode_globals` (bank_style writes are now a
 documented no-op; bank_size targets the tail frame).
 
 Confirmed fields:
 
 ```
-0x08 = Operating Mode — UNCONFIRMED, see the caution below
+0x08 = raw candidate only; operating_mode decodes null and mode writes are ignored
 0x2A..0x46 = Switch Type table (see dedicated section below)
 0x2A = also the location of SW15's type cell (was previously misread as a
        "PER-PR-mode-related flag" — see the T7 finding, it's just SW15)
@@ -346,15 +351,14 @@ Confirmed fields:
 
 ⚠️ **Operating Mode discrepancy — unresolved.** The T7 session set Operating
 Mode to REMOTE as a clean, isolated edit. Frame-122 `0x08` (the byte
-`encode_globals` currently writes) **did not change**. Instead, **tail frame
+the old implementation wrote) **did not change**. Instead, **tail frame
 `0x0A`** flipped `0x00 → 0x02`. Either the original T2-derived "`0x08` =
 operating mode" claim was wrong from the start, or `0x08` tracks something
 that only differs for BANK↔SONG transitions and REMOTE is a special case.
-The code still writes `0x08` (removing working behaviour on a hunch is worse
-than leaving it), but this needs a **T8 follow-up**: a clean BANK↔SONG
-single-edit dump, ideally combined with a Write-All-then-Read-back test to
-check whether the app's current write path actually takes effect on
-hardware at all.
+The audited codec preserves this byte; the HTTP API rejects mode edits and
+the control is disabled. A clean BANK↔SONG capture and reversal are required
+before proposing a write location. Physical write acceptance is a separate
+step after the transport is established.
 
 Several other bytes (`0x76, 0x78, 0xB0, 0xB8, 0xC0, 0xC8, 0xCE, 0xD0`) change between dumps even with no user edits — operational state the device updates on every dump (last preset / last bank / dump counter). Ignored when modeling user state.
 
@@ -367,7 +371,7 @@ two extra globals-frame bytes: `0x16: 0x01→0x00` (SW2) and `0x24: 0x01→0x00`
 (default), `0x00` = PER PR. Not yet wired into the app (read-only decode
 would follow the same pattern as Switch Type).
 
-### Switch Type table (globals frame, 0x2A..0x46) ✅ fully resolved
+### Switch Type table (globals frame, 0x2A..0x46) — reported map
 
 **Formula:** `offset(SW#) = 0x46 - (SW# - 1) * 2` for SW1..SW15 — SW1 at
 `0x46`, counting **down** by 2 bytes per switch to SW15 at `0x2A`.
@@ -386,13 +390,15 @@ contradictions** once re-decoded correctly:
 | T5 (original) | SW1→MOM, SW2→HOLD | `0x44=02, 0x46=01` | SW2@0x44=HOLD(0x02), SW1@0x46=MOM(0x01) | ✅ |
 | T6 (original) | SW3→MOM, SW4→HOLD | `0x40=02, 0x42=01` | SW4@0x40=HOLD(0x02), SW3@0x42=MOM(0x01) | ✅ |
 
-Five independent data points, zero contradictions. The earlier "stack-style,
+The three reported T7 changes and tracked T5/T6 compound changes fit this
+model. The T7 files need recovery, and not all 15 switch cells have been
+individually measured. The earlier "stack-style,
 most-recently-modified-switch-at-0x40" hypothesis was an artifact of never
 having done a single-switch isolation test — the real structure is a plain
 linear table. Implemented in `app.py::decode_globals`/`encode_globals`
 (`switch_types` field) and exposed in the editor's Channels & Switches tab.
 
-### Frame 123 (139 B) — MIDI Filter mask + Starting Preset ✅ resolved
+### Frame 123 (139 B) — Filter / Starting Preset: partial map
 
 This is NOT all `01 00` pairs as a previous draft thought — it carries SETUP P6 (Starting Preset per channel) and SETUP P7 (MIDI Filter mask).
 
@@ -401,13 +407,7 @@ This is NOT all `01 00` pairs as a previous draft thought — it carries SETUP P
 0x06..0x28 = MIDI Filter cells (see below)
 ```
 
-**Resolved 2026-07-20.** A T7-session photo of the SETUP P7 device screen
-shows it is **two fields only** — `<msg type> <bloc/merg>` — with **no
-channel field at all**. MANUAL_SUMMARY.md's "per message-type AND per
-channel" description is technically correct (see below) but the two axes
-aren't a grid: the page cycles through a single **34-entry flat list** —
-18 message types followed by 16 channel entries — each with its own
-BLOC/MERG toggle. Photographed cycle order (exact, page P7):
+**Reported T7 UI observation:** SETUP P7 has a selector and BLOC/MERG field, without a separate channel selector. A flat list of 18 message types followed by 16 channel entries is a working interpretation. The photo is not included here; neither the full cycle nor the channel-cell byte mapping is independently reproducible from tracked evidence. Reported order:
 
 ```
 Note Off, Note On, Key Pressure, Ctr Change, Prog Change, Chan Pressure,
@@ -425,7 +425,7 @@ are **two independent lists**: the filter cells use this filter-page order,
 while the CMD-type byte uses the **CUSTOM P1 list order** (documented in the
 manual — see the Custom MIDI section). Don't cross-map them.
 
-**Formula (confirmed):** `offset(type_index) = 0x06 + type_index * 2` for
+**Working formula (reported spot-checks below):** `offset(type_index) = 0x06 + type_index * 2` for
 the first 18 entries (message types), using the list order above.
 
 | Test | Edit | Result | Match |
@@ -435,8 +435,7 @@ the first 18 entries (message types), using the list order above.
 | T7 4c | Note Off → BLOC | `0x06: 01→00` | index 0 → `0x06+0=0x06` ✅ |
 
 This also retroactively explains T3's original flips (`0x08`=Note On,
-`0x0C`=Ctr Change) — the "CH2"/"CH5" in T3's old notes never existed on the
-page; T3 just landed on two type cells.
+`0x0C`=Ctr Change) — the "CH2"/"CH5" labels in the old notes are unreliable; the resulting offsets are consistent with type cells, without establishing the complete UI model.
 
 **Not yet directly tested:** the 16 channel-entry cells (indices 18-33).
 Predicted range `0x2A..0x48` continuing the same 2-byte stride, but this
@@ -516,7 +515,7 @@ bank slot must reference a real song.
 
 ### Frame 144 (23 B) — tail / global config block ✅ revised after T7 (2026-07-20)
 
-Originally suspected to be a checksum + dump-type. Actually carries **more globals**. All major fields now decoded:
+Originally suspected to be a checksum + dump-type. Actually carries **more globals**. Several fields have observations or candidate mappings; Operating Mode and trailer semantics remain pending:
 
 ```
 0x06 = ? operational flag (flips between dumps without edits)
@@ -535,17 +534,18 @@ Originally suspected to be a checksum + dump-type. Actually carries **more globa
 0x16 = F7
 ```
 
-**PC Status fully confirmed** (2026-07-20): a clean ON→MAP→OFF sequence in
+**PC Status reported as confirmed** (2026-07-20; T7 raw files pending recovery): a clean ON→MAP→OFF sequence in
 the T7 session hit all three values in order (`0x01`, `0x02`, `0x00`) —
-`ON=0x01` was previously only a best guess, now hardware-proven.
+`ON=0x01` was previously a guess; the report supplies an observation, but
+this checkout cannot replay it without the raw source files.
 
-**Bank Size fully confirmed, relocated.** Three clean single-edit dumps
+**Bank Size reported mapping, relocated.** Three clean single-edit dumps
 (5→10→15→1) walked the byte `0x01→0x02→0x03→0x00`, a simple ordinal
 encoding matching the manual's own list order (1, 5, 10, 15). This is a
 different byte, in a different frame, from the two previous (wrong) guesses
 — see the frame-122 caution above.
 
-`66 01` before `F7` confirmed constant across all captured dumps — not a checksum, just an end-of-dump marker.
+`66 01` before `F7` is constant in the observed corpus. Constancy does not prove these bytes are not a checksum, nor identify them as an end marker. A checksum could cover unchanged data, use an unknown scope, or collide. Checksum presence, scope, and algorithm remain unknown; the manual publishes none.
 
 ## 6. Hardware quirks observed during testing
 
@@ -554,15 +554,15 @@ These came up while wiring the editor, useful to know when interpreting MIDI tra
 - **Recall echo.** When the All Access receives a Program Change on its MIDI Receive Channel (`MIDI P7`, default ch1) and `Program Change Status` is `ON`, it recalls the matching preset and immediately broadcasts **the entire preset's PC + CC chain** on its MIDI Out. So sending `PC 0 ch1` to recall `MAN OF 1` causes the device to echo back ~10 events (PC on the device's other channels + CCs for every IA switch the preset toggles). The editor's IA LEDs auto-light from this echo, no need to read the dump's IA bitmap.
 - **MR9 program byte on ch1.** PC traffic on ch1 is **not** a preset-recall signal — it's the device's outgoing program change for the MR9 loop controller (which happens to live on ch1 in the user's rig). For example, PR1 (`MAN OF 1`) sends PC 99 to the MR9. The editor explicitly does not interpret incoming ch1 PC as a preset selector; the foot-controller LCD is driven by virtual-switch clicks only.
 - **No remote dump request.** The All Access has no documented MIDI message that asks it to send a bulk dump. The only way to capture a dump is to initiate it from the front panel (`SYSX → DUMP → CTR STORE`). The editor's "Read All" therefore arms a passive capture and waits.
-- **⚠️ REMOTE mode destabilizes the CUSTOM MIDI page.** Discovered during the T7 session (2026-07-20): with Operating Mode set to REMOTE, the CUSTOM MIDI editing page (`2ND → CUSTOM`) worked for exactly one edit and then became unresponsive on any further edit, requiring a power cycle. Revert Operating Mode to BANK before doing any Custom MIDI work on the device. (This may be related to the still-unresolved Operating Mode byte discrepancy above — REMOTE mode changes preset addressing, and CUSTOM P1's preset-select field may not handle that correctly in this firmware.)
+- **REMOTE/CUSTOM correlation (session report).** CUSTOM became unresponsive after an edit while REMOTE was selected, requiring a power cycle. No tracked reproduction establishes that REMOTE caused the failure. BANK-mode comparison and repeated controlled runs remain pending.
 - **A "recall preset" step in a procedure can silently fail.** T2.D's steps said "recall PR3" before configuring PER-PR values, but the resulting bytes landed on PR1 — the recall didn't take, and CTR STORE saved onto whichever preset was actually active. Always confirm the LCD shows the intended preset immediately before CTR STORE, especially after a bank-size change (which remaps which physical switches are preset switches).
 - **Song and Set assignment pages have no OFF state** (manual SONG/SET P2/P3, pp.56-58). Unlike the PC-map (which does support `OFF` to unmap a PC), Song Create (`PR1-120`) and Set Create (`SONG1-150`) only cycle through valid targets — there's no way to leave a slot unassigned from the front panel. A song has 15 preset slots (SW1-15); only the first Bank-Size are active but all 15 are stored.
-- **⚠️ Bulk load (restore) drops the last preset + corrupts some options** (reported 2026-07-21). After any bulk restore, PR120 is blank and a few global options are wrong — reproducible. **It's the device's own bulk-load firmware, not the editor:** a device-to-device restore (a known-good second unit dumping over Rocktron's native format) leaves PR120 blank too, and the editor is confirmed to send all 145 frames correctly at spec pacing. Undocumented in the manual. **Working recovery: factory reset (SETUP P9 = code 230) first, then restore on top — PR120 sticks.** That implies the bug is tied to stale/persistent memory state (a clean slate commits everything; restoring over existing data doesn't flush the last preset). Parked for a future session — needs a post-restore dump diff to pick the fix. Full detail in [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
+- **Bulk-restore symptom (2026-07-21 report).** PR120 was blank and some global options were wrong after restores. A similar device-to-device symptom excludes the app as the sole explanation, but does not prove a firmware cause or exclude additional editor/transport defects. One factory-reset-then-restore recovery was reported; it is not a universal recovery guarantee. Sent counts are host-side accounting, not proof of wire delivery or device acceptance. No flush, next-frame, ordering, or stale-memory mechanism has been established. See [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
 
 ## 7. T7 — completed 2026-07-20; T8 follow-up remains
 
 The T7 session (15 clean single-edit captures: 1a-1c, 2a-2c, 3, 4a-4c, 5a-5c,
-6) resolved almost everything that was still open. Results, cross-checked
+6) produced the session findings below. Raw T7 files are absent here, so these remain reported results, cross-checked
 against the original T2/T5/T6 data with zero contradictions:
 
 | # | Item | Result |
@@ -570,9 +570,9 @@ against the original T2/T5/T6 data with zero contradictions:
 | 1 | Bank size location | ✅ **Relocated** — tail frame `0x0C`, not frame-122 `0x44`. Encoding `1=0x00,5=0x01,10=0x02,15=0x03`. |
 | 2 | Switch-type cell map | ✅ **Fully resolved** — linear table, `offset(SW#)=0x46-(SW#-1)*2`, `LATCH=0,MOM=1,HOLD=2`. |
 | 3 | PER-PR header semantics | ✅ **Resolved** — slot `+0` = channel (0-based), not a "flag". Confirmed twice independently (new SW9/SW2 test + re-decoded old T2 SW11/PED1 test). |
-| 4 | Filter-grid geometry | ✅ **Resolved, model corrected** — no channel field exists on the filter page at all; it's 18 message-type cells + 16 channel cells in one flat list, `offset=0x06+type_index*2`. |
+| 4 | Filter-grid geometry | Partial: reported type-cell spot-checks; full list and per-channel byte mapping pending. |
 | 5 | Space acceptance | ✅ Moot — 0x2E already in use, no hardware risk. |
-| 6 | Enum stragglers | ⚠️ **Partial** — `PC status ON=0x01` and `KPRS>=0x02` confirmed. REMOTE mode caused a device crash after one CUSTOM MIDI edit (see Hardware Quirks) so `STOP` wasn't captured, and REMOTE's target byte turned out to be tail `0x0A`, not frame-122 `0x08` as expected — see the T8 item below. |
+| 6 | Enum stragglers | ⚠️ **Partial** — `PC status ON=0x01` and `KPRS>=0x02` confirmed. CUSTOM became unresponsive during a REMOTE-mode session (causality unproven) (see Hardware Quirks) so `STOP` wasn't captured, and REMOTE's target byte turned out to be tail `0x0A`, not frame-122 `0x08` as expected — see the T8 item below. |
 | 7 | Song/set OFF markers | ✅ **Resolved (negative result)** — neither page exposes an OFF option; every slot must reference a valid target. |
 
 Bonus finding not on the original list: the **IA GLOBAL/PER-PR bitmap**
@@ -580,13 +580,13 @@ location (globals frame, `offset=0x12+SW#*2`).
 
 ### T8 — one small follow-up
 
-The refined session is **8 read-only capture dumps** (reusing T7's `5a.syx`
+The refined session is **8 captures following front-panel configuration changes** (reusing T7's `5a.syx`
 for the REMOTE data point):
 
 | id | Item | What it settles |
 |----|------|------------------|
-| 1a | BANK-mode CUSTOM stability | Confirms the CUSTOM crash was REMOTE-specific, not an editor bug; yields 3 more CMD-type anchors. |
-| 2a | Operating Mode: BANK→SONG | Which byte tracks SONG; with baseline (BANK) + `5a` (REMOTE) fully maps the field and resolves the frame-122 `0x08` vs tail `0x0A` discrepancy. |
+| 1a | BANK-mode CUSTOM stability | Compare CUSTOM stability in BANK and REMOTE; one stable BANK run cannot establish causality. Collect more CMD-type anchors. |
+| 2a | Operating Mode: BANK→SONG | Which byte tracks SONG; with baseline (BANK) + `5a` (REMOTE) tests candidate mappings for the frame-122 `0x08` vs tail `0x0A` discrepancy. |
 | 3a-3c | Bank Style FIRST/CURNT/OFF | Bank Style's real byte (now that `0x46` is proven to be SW1's switch type). |
 | 4a | Filter Channel 1 → BLOC | The 16 per-channel filter cells (predicts `0x2A`). |
 | 4b | Starting Preset CH2 | Per-channel Starting Preset offsets (only CH1 at `0x6A` known). |
@@ -608,18 +608,40 @@ Full narrative + exact manual-verified button presses:
 
 Manual: *"about 65 Hz (or about 1 byte every 15 milliseconds). Faster transfer will cause a "Buffer Overflow" error on All Access."*
 
-`app.py::dump_send` streams the whole 145-frame dump as one continuous byte
-stream, **1 byte per `send_message`, `time.sleep(0.015)` between bytes**, with
-**no inter-frame pause** (chunk_size=1, byte_delay=15 ms, inter_frame=0). Real
-transfers measure ~18 ms/byte once OS/USB scheduling overhead is added, so the
-device is never driven faster than spec. Earlier tests found that byte delays
->15 ms or *any* inter-frame pause made the device commit early and ignore
-later frames, so these values are hard-locked. **Caveat:** this pacing still
-reproducibly loses the last preset (PR120) on restore — see the Write All
-quirk under §6 and [HARDWARE_TEST_PLAN.md](HARDWARE_TEST_PLAN.md).
+The inspected implementation attempts one-byte `send_message` calls with
+`time.sleep(0.015)` and no inter-frame pause. Those are application requests,
+not measured MIDI wire timing. Passing incomplete SysEx fragments to a MIDI
+API may be unsupported or backend-dependent; successful calls and byte counts
+do not establish valid delivery. The safety of this chunk pacing is unresolved.
+Earlier timing/restore reports do not establish a commit, flush, or next-frame
+mechanism. Capture actual output, identify backend/interface/firmware, and compare
+post-restore readback before claiming a reliable write path. Standalone preset
+receive/addressing behavior is also unknown; do not infer it from bulk framing.
 
 ## 9. Save / Load round-trip
 
-The editor's **Save .syx** button (`/api/dump/save`) streams the current `STATE['dump_bytes']` to the browser as a download. After a fresh **Load** with no edits, the saved file is byte-identical to the original (verified with `cmp`). After a preset rename, only the 24 name bytes inside the affected 309-byte frame change — every other byte (header, payload, tail) is preserved.
+File edits splice selected bytes into retained raw frames. This reduces reconstruction
+but does not prove offsets correct or hardware acceptance. A rename addresses 13
+character pairs (26 bytes), not the former claim of 24 bytes; CH1 starts at `0x20`
+and must remain untouched. The legacy harness now imports the pure codec and
+checks reconstruction from parsed raw frames, replacing its old tautological
+`buf == bytes(buf)` assertion. That remains distinct from an actual API round-trip.
 
-This is the safest possible writeback path: the editor never reconstructs a frame from decoded fields, only splices new bytes into the original raw frame at known offsets.
+## 10. Remaining evidence work
+
+- Isolate all 18 MIDI message-type filter cells; the reported three spot-checks
+  do not establish complete coverage or every message's behavior.
+- Keep the two raw 16-cell regions of the filter/starting-preset frame unknown
+  until isolated channel edits identify their roles and ranges. The predicted
+  channel filter range is not a confirmed map, and CH1 starting-preset evidence
+  does not map all 16 channels.
+- Isolate PER-PR channel `+0` across switches/pedals, including PED2. The corrected
+  PC base removes the old physical overlap; it does not establish all PER-PR
+  mode/default semantics.
+- Resolve Operating Mode and Bank Style with controlled captures. Mode decode is
+  `null` with raw/candidate evidence only; mode writes are ignored. Bank Style
+  has no established offset and its writes remain ignored.
+- Unknown switch-type bytes decode `null`, without a LATCH fallback; retain raw
+  bytes unless the user explicitly supplies a known type.
+- Verify unobserved CMD enum values, EOX device behavior, actual transport output,
+  standalone-preset receive/addressing, and post-restore acceptance.

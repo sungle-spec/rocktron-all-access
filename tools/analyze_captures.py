@@ -19,31 +19,27 @@ Exit code 0 = all layout assertions hold, 1 = a verified anchor failed.
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from rocktron.validation import validated_frames, validate_dump, FrameValidationError
+
+
 
 # ── frame handling (mirrors app.py split_frames) ────────────────────────────
 def split_frames(buf):
-    frames, cur = [], None
-    for b in buf:
-        if b == 0xF0:
-            cur = bytearray([b])
-        elif cur is not None:
-            cur.append(b)
-            if b == 0xF7:
-                frames.append(bytes(cur))
-                cur = None
-    return frames
+    """Use the shared structural parser; never silently discard stream bytes."""
+    return validated_frames(buf)
+
 
 FRAME_ROLES = {309: 'preset', 457: 'song', 107: 'set', 279: 'names',
                263: 'pcmap', 223: 'globals', 139: 'filter', 23: 'tail'}
 
-# ── the confirmed CMD layout (see docs/REVERSE_ENGINEERING.md §Custom MIDI) ──
-CMD_BASE, CMD_STRIDE, CMD_SLOTS = 0xCE, 8, 5
-# within-slot: +0 type, +2 channel (0-based), +4 data1, +6 data2
-CMD_TYPES = ['NOFF>', 'N ON>', 'KPRS>', 'C CH>', 'P CH>', 'CPRS>', 'PBEN>',
-             'T CLK', 'START', 'CONTU', 'STOP', 'ACTSN', 'SYSRS', 'M T C>',
-             'SGPP>', 'SGSL>', 'T REQ', 'NONE']      # manual list order; NONE=0x11
+# Use one source of truth for codec offsets; the checks below compare literal
+# captured values, rather than maintaining a second protocol implementation.
+from rocktron.codec import (CMD_REGION_OFF as CMD_BASE, CMD_STRIDE,
+                           CMD_COUNT as CMD_SLOTS, CMD_TYPE_ORDER as CMD_TYPES,
+                           PC_SLOTS_OFF)
 
 FAILURES = []
 
@@ -183,8 +179,8 @@ def section_hunts(base_frames, captures):
             print(f"   preset frame {idx} diff offsets: " +
                   ' '.join(f"0x{o:02X}:{fa[o]:02X}->{fb[o]:02X}" for o in offs))
         print("   (doc model: 17-slot x 8B IA table at 0x40..0xC7, reversed chan-id"
-              " order -> SW11 slot at 0x70: flag+0, CC#+2, ON+4, OFF+6;"
-              " look above for a 0x03/0x04 channel byte)")
+              " order -> SW11 slot at 0x70: channel (0-based)+0, CC#+2, ON+4, OFF+6;"
+              " compare slot +0 against the expected zero-based channel)")
 
     # -- Hunt 2: PC-map OFF encoding (baseline's own unmapped slots)
     print("-- Hunt 2: PC-map high bytes / OFF pattern (baseline)")
@@ -226,8 +222,8 @@ def section_hunts(base_frames, captures):
         g0 = base_frames[gidx]
         row = ' '.join(f"{g0[o]:02X}" for o in range(0x28, 0x4A, 2))
         print(f"   {'baseline':18s} 0x28..0x48: {row}")
-        print("   (T2 nominally set Bank Size=10 -> look for a byte at 0x04;"
-              " T5 set size=1 + SW1/2 types; T6 set SW3/4 types)")
+        print("   (Historical compound edits cannot independently locate Bank Size."
+              " T7 reports place it in the tail; these cells are switch-type candidates.)")
 
     # -- Hunt 5: filter frame structure
     print("-- Hunt 5: filter-frame (139B) diffs across captures")
@@ -246,7 +242,7 @@ def section_hunts(base_frames, captures):
     documented = set()
     documented.update(range(0x00, 0x06))              # header F0 00 00 29 08 cmd
     documented.update(range(0x06, 0x06 + 26))         # name pairs
-    documented.update(range(0x24, 0x24 + 32))         # PC slots
+    documented.update(range(PC_SLOTS_OFF, PC_SLOTS_OFF + 32))         # PC slots
     documented.update(range(0x40, 0xC8))              # PER-PR IA slot table
     documented.update({0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD})   # IA bitmap
     documented.update(range(CMD_BASE, CMD_BASE + CMD_SLOTS * CMD_STRIDE))  # CMD
@@ -263,7 +259,7 @@ def section_hunts(base_frames, captures):
         print("   offset: #presets-nonzero -> " + ' '.join(
             f"0x{o:02X}:{n}" for o, n in sorted(unk.items())))
     else:
-        print("   none — every non-zero byte in all 120 preset frames is accounted for")
+        print("   none outside candidate field ranges; this does not prove their semantics")
 
 def main():
     args = sys.argv[1:]
@@ -274,7 +270,14 @@ def main():
     for p in paths:
         if not p.exists():
             sys.exit(f"not found: {p}")
-    dumps = [(p.stem, split_frames(p.read_bytes())) for p in paths]
+    dumps = []
+    for path in paths:
+        data = path.read_bytes()
+        try:
+            validate_dump(data, strict=True)
+        except FrameValidationError as error:
+            sys.exit(f'{path.name}: cannot positionally compare malformed/partial dump: {error}')
+        dumps.append((path.stem, split_frames(data)))
     base_name, base_frames = dumps[0]
     captures = dumps[1:]
 
@@ -291,7 +294,7 @@ def main():
         for f in FAILURES:
             print(f"  - {f}")
         sys.exit(1)
-    print("RESULT: all layout assertions hold")
+    print("RESULT: selected corpus and capture-anchor checks passed (not a full protocol proof)")
 
 if __name__ == '__main__':
     main()
